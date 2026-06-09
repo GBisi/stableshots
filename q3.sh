@@ -1,0 +1,11 @@
+uv run python src/stableshot/q3.py \
+  --fixed-subset-metrics results/stable_shots_multi_qpu_grid/aggregate_fixed_subset_metrics.csv \
+  --stableshots-trace-metrics results/stable_shots_multi_qpu_grid/aggregate_stableshots_subset_metrics.csv \
+  --output-dir results/stable_shots_multi_qpu_grid/rq3_grouped_scaling_sensitivity \
+  --taus 0.05 \
+  --bound-delta 0.05 \
+  --calibrations median,p75,p90 \
+  --group-modes global,size,size_algorithm \
+  --split-repetitions 100 \
+  --stableshots-scheme uniform \
+  --stableshots-k 1 \

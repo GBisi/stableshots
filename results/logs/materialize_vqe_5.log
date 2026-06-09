@@ -1,0 +1,28 @@
+StableShots multi-QPU experiment
+  mode                  = materialize
+  output_dir            = results/stable_shots_multi_qpu_grid/materialize_parts/vqe_5
+  input_dir             = results/stable_shots_multi_qpu_grid/materialize_parts/vqe_5
+  algorithms            = vqe
+  sizes                 = 5
+  backends              = fake_fez,fake_kyiv,fake_marrakesh,fake_sherbrooke,fake_torino
+  reference_shots       = 20000
+  fixed_baselines       = 1000,2500,5000,10000,15000,18000
+  source_batch_size     = 50
+  stable_config_ids     = b50_lb3_k5_eps0p005
+  aggregate_config_id   = b50_lb3_k5_eps0p005
+  policies              = local_only_offline_aggregate,aggregate_only_sync,hierarchical_local_aggregate
+  weighting_schemes     = uniform,shot_proportional,confidence
+  save_raw_batches      = True
+  split_mode            = stratified_size
+  test_fraction         = 0.2
+  split_repetitions     = 1
+  selection_target_tvd  = 0.05
+  selection_risk_stat   = q95
+  selection_objective   = max_ssr
+
+[1/5] materialize vqe_5_fake_fez
+[2/5] materialize vqe_5_fake_kyiv
+[3/5] materialize vqe_5_fake_marrakesh
+[4/5] materialize vqe_5_fake_sherbrooke
+[5/5] materialize vqe_5_fake_torino
+Wrote materialized payloads to /raid/g.bisicchia/OLD_stableshot/results/stable_shots_multi_qpu_grid/materialize_parts/vqe_5/trace_payloads.jsonl.gz

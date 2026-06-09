@@ -1,0 +1,10 @@
+policy,scheme,selected_config_id,selections,relaxed_rate,total,selection_frequency
+aggregate_only_sync,confidence,b50_lb3_k2_eps0p005,100,0.0,100,1.0
+aggregate_only_sync,shot_proportional,b50_lb3_k2_eps0p005,100,0.0,100,1.0
+aggregate_only_sync,uniform,b50_lb3_k2_eps0p005,100,0.0,100,1.0
+hierarchical_local_aggregate,confidence,b50_lb3_k2_eps0p005,100,0.0,100,1.0
+hierarchical_local_aggregate,shot_proportional,b50_lb3_k2_eps0p005,100,0.0,100,1.0
+hierarchical_local_aggregate,uniform,b50_lb3_k2_eps0p005,100,0.0,100,1.0
+local_only_offline_aggregate,confidence,b50_lb3_k2_eps0p005,100,0.0,100,1.0
+local_only_offline_aggregate,shot_proportional,b50_lb3_k2_eps0p005,100,0.0,100,1.0
+local_only_offline_aggregate,uniform,b50_lb3_k2_eps0p005,100,0.0,100,1.0

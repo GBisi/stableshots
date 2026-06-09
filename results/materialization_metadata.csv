@@ -1,0 +1,2 @@
+stage,part_count,trace_count,failed_trace_count,payload_path,raw_batches_saved
+parallel_materialize_merge,72,360,0,results/stable_shots_multi_qpu_grid/trace_payloads.jsonl.gz,True

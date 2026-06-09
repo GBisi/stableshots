@@ -1,0 +1,159 @@
+StableShots multi-QPU experiment
+  mode                  = grid_search
+  output_dir            = results/stable_shots_multi_qpu_grid
+  input_dir             = results/stable_shots_multi_qpu_grid
+  algorithms            = dj,qaoa,qft,qnn,random,vqe
+  sizes                 = 4,5,6,7,8,9,10,11,12,13,14,15
+  backends              = fake_fez,fake_kyiv,fake_marrakesh,fake_sherbrooke,fake_torino
+  reference_shots       = 20000
+  fixed_baselines       = 1000,2500,5000,10000,15000,18000
+  source_batch_size     = 50
+  stable_config_ids     = b50_lb1_k1_eps0p001,b50_lb1_k1_eps0p0025,b50_lb1_k1_eps0p005,b50_lb1_k2_eps0p001,b50_lb1_k2_eps0p0025,b50_lb1_k2_eps0p005,b50_lb1_k3_eps0p001,b50_lb1_k3_eps0p0025,b50_lb1_k3_eps0p005,b50_lb1_k5_eps0p001,b50_lb1_k5_eps0p0025,b50_lb1_k5_eps0p005,b50_lb1_k10_eps0p001,b50_lb1_k10_eps0p0025,b50_lb1_k10_eps0p005,b50_lb2_k1_eps0p001,b50_lb2_k1_eps0p0025,b50_lb2_k1_eps0p005,b50_lb2_k2_eps0p001,b50_lb2_k2_eps0p0025,b50_lb2_k2_eps0p005,b50_lb2_k3_eps0p001,b50_lb2_k3_eps0p0025,b50_lb2_k3_eps0p005,b50_lb2_k5_eps0p001,b50_lb2_k5_eps0p0025,b50_lb2_k5_eps0p005,b50_lb2_k10_eps0p001,b50_lb2_k10_eps0p0025,b50_lb2_k10_eps0p005,b50_lb3_k1_eps0p001,b50_lb3_k1_eps0p0025,b50_lb3_k1_eps0p005,b50_lb3_k2_eps0p001,b50_lb3_k2_eps0p0025,b50_lb3_k2_eps0p005,b50_lb3_k3_eps0p001,b50_lb3_k3_eps0p0025,b50_lb3_k3_eps0p005,b50_lb3_k5_eps0p001,b50_lb3_k5_eps0p0025,b50_lb3_k5_eps0p005,b50_lb3_k10_eps0p001,b50_lb3_k10_eps0p0025,b50_lb3_k10_eps0p005,b50_lb5_k1_eps0p001,b50_lb5_k1_eps0p0025,b50_lb5_k1_eps0p005,b50_lb5_k2_eps0p001,b50_lb5_k2_eps0p0025,b50_lb5_k2_eps0p005,b50_lb5_k3_eps0p001,b50_lb5_k3_eps0p0025,b50_lb5_k3_eps0p005,b50_lb5_k5_eps0p001,b50_lb5_k5_eps0p0025,b50_lb5_k5_eps0p005,b50_lb5_k10_eps0p001,b50_lb5_k10_eps0p0025,b50_lb5_k10_eps0p005,b50_lb10_k1_eps0p001,b50_lb10_k1_eps0p0025,b50_lb10_k1_eps0p005,b50_lb10_k2_eps0p001,b50_lb10_k2_eps0p0025,b50_lb10_k2_eps0p005,b50_lb10_k3_eps0p001,b50_lb10_k3_eps0p0025,b50_lb10_k3_eps0p005,b50_lb10_k5_eps0p001,b50_lb10_k5_eps0p0025,b50_lb10_k5_eps0p005,b50_lb10_k10_eps0p001,b50_lb10_k10_eps0p0025,b50_lb10_k10_eps0p005
+  aggregate_config_id   = b50_lb3_k5_eps0p005
+  policies              = local_only_offline_aggregate,aggregate_only_sync,hierarchical_local_aggregate
+  weighting_schemes     = uniform,shot_proportional,confidence
+  save_raw_batches      = True
+  split_mode            = stratified_size
+  test_fraction         = 0.2
+  split_repetitions     = 100
+  selection_target_tvd  = 0.05
+  selection_risk_stat   = q95
+  selection_objective   = max_ssr
+
+Grid search will compute missing local StableShots configs from raw_batches: b50_lb1_k1_eps0p001,b50_lb1_k1_eps0p0025,b50_lb1_k1_eps0p005,b50_lb1_k2_eps0p001,b50_lb1_k2_eps0p0025,b50_lb1_k2_eps0p005,b50_lb1_k3_eps0p001,b50_lb1_k3_eps0p0025,b50_lb1_k3_eps0p005,b50_lb1_k5_eps0p001...
+[1/75] reuse cached grid config b50_lb1_k1_eps0p001
+[2/75] reuse cached grid config b50_lb1_k1_eps0p0025
+[3/75] reuse cached grid config b50_lb1_k1_eps0p005
+[4/75] reuse cached grid config b50_lb1_k2_eps0p001
+[5/75] reuse cached grid config b50_lb1_k2_eps0p0025
+[6/75] reuse cached grid config b50_lb1_k2_eps0p005
+[7/75] reuse cached grid config b50_lb1_k3_eps0p001
+[8/75] reuse cached grid config b50_lb1_k3_eps0p0025
+[9/75] reuse cached grid config b50_lb1_k3_eps0p005
+[10/75] reuse cached grid config b50_lb1_k5_eps0p001
+[11/75] reuse cached grid config b50_lb1_k5_eps0p0025
+[12/75] reuse cached grid config b50_lb1_k5_eps0p005
+[13/75] reuse cached grid config b50_lb1_k10_eps0p001
+[14/75] reuse cached grid config b50_lb1_k10_eps0p0025
+[15/75] reuse cached grid config b50_lb1_k10_eps0p005
+[16/75] reuse cached grid config b50_lb2_k1_eps0p001
+[17/75] reuse cached grid config b50_lb2_k1_eps0p0025
+[18/75] reuse cached grid config b50_lb2_k1_eps0p005
+[19/75] reuse cached grid config b50_lb2_k2_eps0p001
+[20/75] reuse cached grid config b50_lb2_k2_eps0p0025
+[21/75] reuse cached grid config b50_lb2_k2_eps0p005
+[22/75] reuse cached grid config b50_lb2_k3_eps0p001
+[23/75] reuse cached grid config b50_lb2_k3_eps0p0025
+[24/75] reuse cached grid config b50_lb2_k3_eps0p005
+[25/75] reuse cached grid config b50_lb2_k5_eps0p001
+[26/75] reuse cached grid config b50_lb2_k5_eps0p0025
+[27/75] reuse cached grid config b50_lb2_k5_eps0p005
+[28/75] reuse cached grid config b50_lb2_k10_eps0p001
+[29/75] reuse cached grid config b50_lb2_k10_eps0p0025
+[30/75] reuse cached grid config b50_lb2_k10_eps0p005
+[31/75] reuse cached grid config b50_lb3_k1_eps0p001
+[32/75] reuse cached grid config b50_lb3_k1_eps0p0025
+[33/75] reuse cached grid config b50_lb3_k1_eps0p005
+[34/75] reuse cached grid config b50_lb3_k2_eps0p001
+[35/75] reuse cached grid config b50_lb3_k2_eps0p0025
+[36/75] reuse cached grid config b50_lb3_k2_eps0p005
+[37/75] reuse cached grid config b50_lb3_k3_eps0p001
+[38/75] reuse cached grid config b50_lb3_k3_eps0p0025
+[39/75] reuse cached grid config b50_lb3_k3_eps0p005
+[40/75] reuse cached grid config b50_lb3_k5_eps0p001
+[41/75] reuse cached grid config b50_lb3_k5_eps0p0025
+[42/75] reuse cached grid config b50_lb3_k5_eps0p005
+[43/75] reuse cached grid config b50_lb3_k10_eps0p001
+[44/75] reuse cached grid config b50_lb3_k10_eps0p0025
+[45/75] reuse cached grid config b50_lb3_k10_eps0p005
+[46/75] reuse cached grid config b50_lb5_k1_eps0p001
+[47/75] reuse cached grid config b50_lb5_k1_eps0p0025
+[48/75] reuse cached grid config b50_lb5_k1_eps0p005
+[49/75] reuse cached grid config b50_lb5_k2_eps0p001
+[50/75] reuse cached grid config b50_lb5_k2_eps0p0025
+[51/75] reuse cached grid config b50_lb5_k2_eps0p005
+[52/75] reuse cached grid config b50_lb5_k3_eps0p001
+[53/75] reuse cached grid config b50_lb5_k3_eps0p0025
+[54/75] reuse cached grid config b50_lb5_k3_eps0p005
+[55/75] reuse cached grid config b50_lb5_k5_eps0p001
+[56/75] reuse cached grid config b50_lb5_k5_eps0p0025
+[57/75] reuse cached grid config b50_lb5_k5_eps0p005
+[58/75] reuse cached grid config b50_lb5_k10_eps0p001
+[59/75] reuse cached grid config b50_lb5_k10_eps0p0025
+[60/75] reuse cached grid config b50_lb5_k10_eps0p005
+[61/75] reuse cached grid config b50_lb10_k1_eps0p001
+[62/75] reuse cached grid config b50_lb10_k1_eps0p0025
+[63/75] reuse cached grid config b50_lb10_k1_eps0p005
+[64/75] reuse cached grid config b50_lb10_k2_eps0p001
+[65/75] reuse cached grid config b50_lb10_k2_eps0p0025
+[66/75] reuse cached grid config b50_lb10_k2_eps0p005
+[67/75] reuse cached grid config b50_lb10_k3_eps0p001
+[68/75] reuse cached grid config b50_lb10_k3_eps0p0025
+[69/75] reuse cached grid config b50_lb10_k3_eps0p005
+[70/75] reuse cached grid config b50_lb10_k5_eps0p001
+[71/75] reuse cached grid config b50_lb10_k5_eps0p0025
+[72/75] reuse cached grid config b50_lb10_k5_eps0p005
+[73/75] reuse cached grid config b50_lb10_k10_eps0p001
+[74/75] reuse cached grid config b50_lb10_k10_eps0p0025
+[75/75] reuse cached grid config b50_lb10_k10_eps0p005
+Wrote grid-search results to /raid/g.bisicchia/OLD_stableshot/results/stable_shots_multi_qpu_grid
+
+Repeated selected test summary:
+                      policy            scheme  repetitions  median_test_median_tvd  q75_test_median_tvd  median_test_q95_tvd  median_test_max_tvd  median_test_valid_rate_tvd_le_0p05  median_test_median_ssr  median_test_median_parallel_ssr  relaxed_selection_rate
+         aggregate_only_sync        confidence          100                0.023894             0.025403             0.038507             0.046791                            1.000000                0.735000                         0.735000                     0.0
+         aggregate_only_sync shot_proportional          100                0.023894             0.025403             0.038507             0.046791                            1.000000                0.735000                         0.735000                     0.0
+         aggregate_only_sync           uniform          100                0.023894             0.025403             0.038507             0.046791                            1.000000                0.735000                         0.735000                     0.0
+hierarchical_local_aggregate        confidence          100                0.023655             0.024944             0.038032             0.046791                            1.000000                0.735000                         0.735000                     0.0
+hierarchical_local_aggregate shot_proportional          100                0.024096             0.025210             0.039674             0.046791                            1.000000                0.735000                         0.735000                     0.0
+hierarchical_local_aggregate           uniform          100                0.024059             0.025210             0.039654             0.046791                            1.000000                0.735000                         0.735000                     0.0
+local_only_offline_aggregate        confidence          100                0.020102             0.021394             0.045220             0.062918                            0.966667                0.679896                         0.659375                     0.0
+local_only_offline_aggregate shot_proportional          100                0.020067             0.021658             0.046257             0.062918                            0.966667                0.679896                         0.659375                     0.0
+local_only_offline_aggregate           uniform          100                0.020103             0.021489             0.045222             0.062918                            0.966667                0.679896                         0.659375                     0.0
+
+Config frequency:
+                      policy            scheme   selected_config_id  selections  relaxed_rate  total  selection_frequency
+         aggregate_only_sync        confidence  b50_lb3_k1_eps0p005          71           0.0    100                 0.71
+         aggregate_only_sync        confidence  b50_lb2_k5_eps0p005          10           0.0    100                 0.10
+         aggregate_only_sync        confidence b50_lb2_k10_eps0p005           7           0.0    100                 0.07
+         aggregate_only_sync        confidence  b50_lb2_k3_eps0p005           5           0.0    100                 0.05
+         aggregate_only_sync        confidence  b50_lb2_k2_eps0p005           3           0.0    100                 0.03
+         aggregate_only_sync        confidence b50_lb1_k1_eps0p0025           2           0.0    100                 0.02
+         aggregate_only_sync        confidence  b50_lb2_k1_eps0p005           2           0.0    100                 0.02
+         aggregate_only_sync shot_proportional  b50_lb3_k1_eps0p005          71           0.0    100                 0.71
+         aggregate_only_sync shot_proportional  b50_lb2_k5_eps0p005          10           0.0    100                 0.10
+         aggregate_only_sync shot_proportional b50_lb2_k10_eps0p005           7           0.0    100                 0.07
+         aggregate_only_sync shot_proportional  b50_lb2_k3_eps0p005           5           0.0    100                 0.05
+         aggregate_only_sync shot_proportional  b50_lb2_k2_eps0p005           3           0.0    100                 0.03
+         aggregate_only_sync shot_proportional b50_lb1_k1_eps0p0025           2           0.0    100                 0.02
+         aggregate_only_sync shot_proportional  b50_lb2_k1_eps0p005           2           0.0    100                 0.02
+         aggregate_only_sync           uniform  b50_lb3_k1_eps0p005          71           0.0    100                 0.71
+         aggregate_only_sync           uniform  b50_lb2_k5_eps0p005          10           0.0    100                 0.10
+         aggregate_only_sync           uniform b50_lb2_k10_eps0p005           7           0.0    100                 0.07
+         aggregate_only_sync           uniform  b50_lb2_k3_eps0p005           5           0.0    100                 0.05
+         aggregate_only_sync           uniform  b50_lb2_k2_eps0p005           3           0.0    100                 0.03
+         aggregate_only_sync           uniform b50_lb1_k1_eps0p0025           2           0.0    100                 0.02
+         aggregate_only_sync           uniform  b50_lb2_k1_eps0p005           2           0.0    100                 0.02
+hierarchical_local_aggregate        confidence  b50_lb3_k1_eps0p005          72           0.0    100                 0.72
+hierarchical_local_aggregate        confidence  b50_lb2_k5_eps0p005          10           0.0    100                 0.10
+hierarchical_local_aggregate        confidence b50_lb2_k10_eps0p005           7           0.0    100                 0.07
+hierarchical_local_aggregate        confidence  b50_lb2_k3_eps0p005           5           0.0    100                 0.05
+hierarchical_local_aggregate        confidence  b50_lb2_k2_eps0p005           3           0.0    100                 0.03
+hierarchical_local_aggregate        confidence  b50_lb2_k1_eps0p005           2           0.0    100                 0.02
+hierarchical_local_aggregate        confidence b50_lb1_k1_eps0p0025           1           0.0    100                 0.01
+hierarchical_local_aggregate shot_proportional  b50_lb3_k1_eps0p005          72           0.0    100                 0.72
+hierarchical_local_aggregate shot_proportional  b50_lb2_k5_eps0p005          13           0.0    100                 0.13
+hierarchical_local_aggregate shot_proportional b50_lb2_k10_eps0p005           7           0.0    100                 0.07
+hierarchical_local_aggregate shot_proportional  b50_lb2_k2_eps0p005           4           0.0    100                 0.04
+hierarchical_local_aggregate shot_proportional  b50_lb2_k3_eps0p005           2           0.0    100                 0.02
+hierarchical_local_aggregate shot_proportional b50_lb1_k1_eps0p0025           1           0.0    100                 0.01
+hierarchical_local_aggregate shot_proportional  b50_lb2_k1_eps0p005           1           0.0    100                 0.01
+hierarchical_local_aggregate           uniform  b50_lb3_k1_eps0p005          72           0.0    100                 0.72
+hierarchical_local_aggregate           uniform  b50_lb2_k5_eps0p005          13           0.0    100                 0.13
+hierarchical_local_aggregate           uniform b50_lb2_k10_eps0p005           7           0.0    100                 0.07
+hierarchical_local_aggregate           uniform  b50_lb2_k2_eps0p005           3           0.0    100                 0.03
+hierarchical_local_aggregate           uniform  b50_lb2_k1_eps0p005           2           0.0    100                 0.02
+hierarchical_local_aggregate           uniform  b50_lb2_k3_eps0p005           2           0.0    100                 0.02
+hierarchical_local_aggregate           uniform b50_lb1_k1_eps0p0025           1           0.0    100                 0.01
+local_only_offline_aggregate        confidence  b50_lb2_k1_eps0p005         100           0.0    100                 1.00
+local_only_offline_aggregate shot_proportional  b50_lb2_k1_eps0p005         100           0.0    100                 1.00
+local_only_offline_aggregate           uniform  b50_lb2_k1_eps0p005         100           0.0    100                 1.00

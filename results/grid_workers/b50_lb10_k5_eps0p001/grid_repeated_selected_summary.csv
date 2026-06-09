@@ -1,0 +1,10 @@
+policy,scheme,repetitions,median_test_median_tvd,q75_test_median_tvd,median_test_q95_tvd,median_test_max_tvd,median_test_valid_rate_tvd_le_0p05,median_test_median_ssr,median_test_median_parallel_ssr,relaxed_selection_rate
+aggregate_only_sync,confidence,100,0.0,0.0,0.002960272556390975,0.0036729508196722445,1.0,0.0,0.0,0.0
+aggregate_only_sync,shot_proportional,100,0.0,0.0,0.002960272556390975,0.0036729508196722445,1.0,0.0,0.0,0.0
+aggregate_only_sync,uniform,100,0.0,0.0,0.002960272556390975,0.0036729508196722445,1.0,0.0,0.0,0.0
+hierarchical_local_aggregate,confidence,100,0.0,0.0,0.0029730662919201373,0.003735980714820145,1.0,0.0,0.0,0.0
+hierarchical_local_aggregate,shot_proportional,100,0.0,0.0,0.002984537466931205,0.0036729508196722445,1.0,0.0,0.0,0.0
+hierarchical_local_aggregate,uniform,100,0.0,0.0,0.0029846024932031505,0.0036729508196722445,1.0,0.0,0.0,0.0
+local_only_offline_aggregate,confidence,100,0.0,0.0,0.0020060984037171773,0.002725438596491224,1.0,0.0,0.0,0.0
+local_only_offline_aggregate,shot_proportional,100,0.0,0.0,0.0016458576064199999,0.0026780625596669046,1.0,0.0,0.0,0.0
+local_only_offline_aggregate,uniform,100,0.0,0.0,0.001929991324734134,0.002725438596491224,1.0,0.0,0.0,0.0

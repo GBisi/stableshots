@@ -1,0 +1,2 @@
+stage,payload_path,trace_count,failed_trace_count,run_time_seconds,reference_shots,source_batch_size,sampling_strategy,sampling_seed,fixed_baselines,stable_config_ids,raw_batches_saved
+materialize,results/stable_shots_multi_qpu_grid/materialize_parts/dj_6/trace_payloads.jsonl.gz,5,0,3.1996151050552726,20000,50,sequential,0,"1000,2500,5000,10000,15000,18000",b50_lb3_k5_eps0p005,True

@@ -1,0 +1,2 @@
+input_dir,output_dir,candidate_rows,split_repetitions,test_fraction,split_seed,selection_target_tvd,selection_risk_group,selection_risk_aggregation,selection_objective
+results/stable_shots_multi_qpu_grid,results/stable_shots_multi_qpu_grid,243000,100,0.2,0,0.05,size,max_group_q95,max_ssr
