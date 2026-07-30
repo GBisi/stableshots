@@ -1,0 +1,26 @@
+{
+  "checks_performed": 4,
+  "config": {
+    "batch_size": 50,
+    "epsilon": 0.025,
+    "lookback_batches": 1,
+    "max_shots": 350,
+    "stability": 3
+  },
+  "context": {
+    "algorithm": "demo",
+    "backend": "synthetic",
+    "sampling_seed": 0,
+    "sampling_strategy": "sequential",
+    "size": 2,
+    "source_batch_size": 50,
+    "trace_id": "audit_demo"
+  },
+  "decision_inputs": "batch counts, cumulative counts, lookback cumulative counts, TVD threshold, and streak history",
+  "explanation": "Stopped after 250 shots because 3 consecutive checks had TVD <= 0.025. Decisive TVDs: [0.010000000000000009, 0.010000000000000009, 0.006000000000000005].",
+  "final_event_hash": "339e790e0f3d170412f70fd551a927172d249711aad36b8f76dcba7d05c29a0c",
+  "not_decision_inputs": "reference counts and post-hoc tvd_to_reference",
+  "reason_code": "stable",
+  "run_id": "455e504d-98a8-438c-ac96-667eca2a359d",
+  "status": "stopped"
+}

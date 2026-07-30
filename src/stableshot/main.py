@@ -77,13 +77,18 @@ import math
 import sys
 import time
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from itertools import product
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+
+try:
+    from stableshot.audit import AuditPolicy, StableShotsAudit
+except ModuleNotFoundError:  # Allows direct execution as src/stableshot/main.py.
+    from audit import AuditPolicy, StableShotsAudit
 
 DEFAULT_ALGORITHMS = ["dj", "qaoa", "qft", "qnn", "random", "vqe"]
 DEFAULT_SIZES = [4, 6, 8, 10, 12, 14]
@@ -427,23 +432,93 @@ def prefix_counts(raw_batches: Sequence[Batch], shots: int) -> Counts:
     return counts
 
 
-def run_stable_shots(raw_batches: Sequence[Batch], config: StableShotsConfig) -> Tuple[Counts, int, float, str]:
+def run_stable_shots(
+    raw_batches: Sequence[Batch],
+    config: StableShotsConfig,
+    audit: Optional[StableShotsAudit] = None,
+) -> Tuple[Counts, int, float, str]:
+    """Run StableShots, optionally emitting a complete decision audit trail.
+
+    The return shape is intentionally unchanged for backward compatibility.
+    Call ``run_stable_shots_audited`` when the caller also needs the audit object.
+    """
     cumulative: Counts = Counter()
     snapshots: List[Counts] = []
     stable_checks = 0
+    checks_performed = 0
     shots_used = 0
     last_delta = float("nan")
-    for batch_shots, batch_counts in iter_execution_batches(raw_batches, config.batch_size, config.max_shots):
+    last_round = 0
+    for round_index, (batch_shots, batch_counts) in enumerate(
+        iter_execution_batches(raw_batches, config.batch_size, config.max_shots), start=1
+    ):
+        last_round = round_index
         merge_counts(cumulative, batch_counts)
         shots_used += batch_shots
         snapshots.append(Counter(cumulative))
+        if audit is not None:
+            audit.record_batch(
+                round_index=round_index,
+                batch_shots=batch_shots,
+                total_shots=shots_used,
+                batch_counts=batch_counts,
+                cumulative_counts=cumulative,
+            )
         if len(snapshots) > config.lookback_batches:
             previous = snapshots[-1 - config.lookback_batches]
             last_delta = tvd(cumulative, previous)
+            checks_performed += 1
+            streak_before = stable_checks
             stable_checks = stable_checks + 1 if last_delta <= config.epsilon else 0
+            if audit is not None:
+                audit.record_check(
+                    round_index=round_index,
+                    lookback_round_index=round_index - config.lookback_batches,
+                    total_shots=shots_used,
+                    current_counts=cumulative,
+                    previous_counts=previous,
+                    delta=last_delta,
+                    epsilon=config.epsilon,
+                    streak_before=streak_before,
+                    streak_after=stable_checks,
+                    required_stability=config.stability,
+                )
             if stable_checks >= config.stability:
+                if audit is not None:
+                    audit.record_stop(
+                        reason="stable",
+                        total_shots=shots_used,
+                        round_index=round_index,
+                        stable_streak=stable_checks,
+                        checks_performed=checks_performed,
+                        last_delta=last_delta,
+                    )
                 return Counter(cumulative), shots_used, last_delta, "stable"
-    return Counter(cumulative), shots_used, last_delta, "max_budget"
+
+    stop_reason = "max_budget" if shots_used >= config.max_shots else "input_exhausted"
+    if audit is not None:
+        audit.record_stop(
+            reason=stop_reason,
+            total_shots=shots_used,
+            round_index=last_round,
+            stable_streak=stable_checks,
+            checks_performed=checks_performed,
+            last_delta=None if math.isnan(last_delta) else last_delta,
+        )
+    return Counter(cumulative), shots_used, last_delta, stop_reason
+
+
+def run_stable_shots_audited(
+    raw_batches: Sequence[Batch],
+    config: StableShotsConfig,
+    *,
+    context: Optional[Mapping[str, object]] = None,
+    policy: Optional[AuditPolicy] = None,
+) -> Tuple[Counts, int, float, str, StableShotsAudit]:
+    """Convenience API returning both the StableShots result and its audit trail."""
+    audit = StableShotsAudit(config=asdict(config), context=context, policy=policy)
+    counts, shots, last_delta, reason = run_stable_shots(raw_batches, config, audit=audit)
+    return counts, shots, last_delta, reason, audit
 
 
 def stable_config_columns(config: StableShotsConfig) -> Dict[str, object]:
