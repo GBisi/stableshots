@@ -21,10 +21,10 @@ The UI supports two trace sources:
 
 The UI has four tabs:
 
-1. **Execute** shows consumed shots, the stop reason, marginal TVD, the threshold, and the decision history.
-2. **Explain** reconstructs the decisive checks and the outcomes contributing most to the last TVD change.
+1. **Execute** shows consumed shots, the stop reason, marginal TVD, the threshold, and the decision history. The chart marks the exact controller stop with a vertical stop indicator.
+2. **Explain** reconstructs the decisive checks and the outcomes contributing most to the last TVD change. Decision metrics are formatted compactly rather than exposing binary floating-point artifacts.
 3. **Compare** uses the same materialized measurement stream for fixed-shot budgets and StableShots. TVD to the materialized reference is shown only as a post-hoc evaluation metric and is never passed to the online controller.
-4. **Audit** verifies the append-only SHA-256 hash chain, lets the attendee create a tampered copy, and shows where verification fails.
+4. **Audit** shows the complete event timeline, supports filtering and previous/next or direct event navigation, exposes each event payload and hash-chain metadata, downloads the full JSONL record, and demonstrates tamper detection.
 
 ### Bundled offline scenarios
 

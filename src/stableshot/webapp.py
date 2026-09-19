@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -42,6 +43,149 @@ def _check_rows(audit) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def _decision_history_chart(checks: pd.DataFrame, execution):
+    marginal = (
+        alt.Chart(checks)
+        .mark_line(point=True, strokeWidth=2)
+        .encode(
+            x=alt.X("shots:Q", title="Cumulative shots", axis=alt.Axis(format=",")),
+            y=alt.Y(
+                "marginal_tvd:Q",
+                title="TVD to look-back snapshot",
+                axis=alt.Axis(format=".3f"),
+            ),
+            tooltip=[
+                alt.Tooltip("shots:Q", title="Shots", format=","),
+                alt.Tooltip("marginal_tvd:Q", title="Marginal TVD", format=".6f"),
+                alt.Tooltip("epsilon:Q", title="Epsilon", format=".6f"),
+                alt.Tooltip("passed:N", title="Passed"),
+                alt.Tooltip("streak:Q", title="Stable streak"),
+            ],
+        )
+    )
+
+    epsilon = (
+        alt.Chart(checks)
+        .mark_line(strokeDash=[7, 5], strokeWidth=2)
+        .encode(
+            x=alt.X("shots:Q"),
+            y=alt.Y("epsilon:Q"),
+        )
+    )
+
+    passed_checks = checks[checks["passed"]]
+    passed = (
+        alt.Chart(passed_checks)
+        .mark_point(shape="diamond", filled=True, size=80)
+        .encode(
+            x="shots:Q",
+            y="marginal_tvd:Q",
+            tooltip=[
+                alt.Tooltip("shots:Q", title="Shots", format=","),
+                alt.Tooltip("marginal_tvd:Q", title="Marginal TVD", format=".6f"),
+                alt.Tooltip("streak:Q", title="Stable streak"),
+            ],
+        )
+    )
+
+    stop_frame = pd.DataFrame(
+        {
+            "shots": [execution.shots],
+            "label": [
+                f"STOP · {execution.stop_reason} · {execution.shots:,} shots"
+            ],
+        }
+    )
+    stop_rule = (
+        alt.Chart(stop_frame)
+        .mark_rule(strokeDash=[4, 4], strokeWidth=2, color="#ff4b4b")
+        .encode(x="shots:Q")
+    )
+    stop_label = (
+        alt.Chart(stop_frame)
+        .mark_text(
+            align="right",
+            baseline="top",
+            dx=-6,
+            dy=8,
+            fontWeight="bold",
+            color="#ff4b4b",
+        )
+        .encode(
+            x="shots:Q",
+            y=alt.value(0),
+            text="label:N",
+        )
+    )
+
+    layers = marginal + epsilon + passed + stop_rule + stop_label
+    if not math.isnan(execution.last_delta):
+        stop_point = pd.DataFrame(
+            {
+                "shots": [execution.shots],
+                "marginal_tvd": [execution.last_delta],
+            }
+        )
+        layers = layers + (
+            alt.Chart(stop_point)
+            .mark_point(filled=True, size=130, color="#ff4b4b")
+            .encode(x="shots:Q", y="marginal_tvd:Q")
+        )
+
+    return layers.properties(height=390).interactive()
+
+
+def _audit_event_rows(events) -> pd.DataFrame:
+    rows = []
+    for event in events:
+        payload = event.get("payload", {})
+        event_type = str(event.get("event_type", ""))
+        status = ""
+        if event_type == "stability_check":
+            status = "PASS" if payload.get("comparison_passed") else "FAIL"
+        elif event_type == "stop_decision":
+            status = str(payload.get("reason_code", ""))
+        rows.append(
+            {
+                "sequence": int(event.get("sequence", -1)),
+                "event_type": event_type,
+                "recorded_at_utc": event.get("recorded_at_utc", ""),
+                "round": payload.get("round_index"),
+                "total_shots": payload.get("total_shots"),
+                "TVD": (
+                    round(float(payload["delta"]), 6)
+                    if payload.get("delta") is not None
+                    else None
+                ),
+                "status": status,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _compact_numbers(value):
+    """Return a display-only copy with floating values rounded to useful precision."""
+    if isinstance(value, float):
+        return float(f"{value:.8g}")
+    if isinstance(value, dict):
+        return {key: _compact_numbers(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_compact_numbers(item) for item in value]
+    return value
+
+
+def _move_audit_event(nav_key: str, sequences: list[int], offset: int) -> None:
+    if not sequences:
+        return
+    current = int(st.session_state.get(nav_key, sequences[0]))
+    try:
+        index = sequences.index(current)
+    except ValueError:
+        index = 0
+    next_index = min(max(index + offset, 0), len(sequences) - 1)
+    st.session_state[nav_key] = sequences[next_index]
 
 
 def _configuration_controls(scenario):
@@ -210,8 +354,24 @@ def _render_execute(execution, scenario) -> None:
     checks = _check_rows(execution.audit)
     if not checks.empty:
         st.subheader("Decision history")
-        st.line_chart(checks.set_index("shots")[["marginal_tvd", "epsilon"]])
-        st.dataframe(checks, use_container_width=True, hide_index=True)
+        st.altair_chart(
+            _decision_history_chart(checks, execution),
+            use_container_width=True,
+        )
+        st.caption(
+            "Solid line: marginal TVD · dashed horizontal line: epsilon · "
+            "diamonds: passing checks · red dashed vertical line: controller stop."
+        )
+        st.dataframe(
+            checks.style.format(
+                {
+                    "marginal_tvd": "{:.6f}",
+                    "epsilon": "{:.6f}",
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
     else:
         st.info("This run stopped before a stability check became eligible.")
 
@@ -243,7 +403,11 @@ def _render_explain(execution) -> None:
                 for check in decisive
             ]
         )
-        st.dataframe(table, use_container_width=True, hide_index=True)
+        st.dataframe(
+            table.style.format({"TVD": "{:.6g}", "epsilon": "{:.6g}"}),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     checks = [
         event["payload"]
@@ -254,8 +418,17 @@ def _render_explain(execution) -> None:
         contributions = checks[-1].get("top_outcome_contributions", [])
         if contributions:
             st.subheader("Largest contributors to the last TVD change")
+            contribution_frame = pd.DataFrame(contributions)
             st.dataframe(
-                pd.DataFrame(contributions), use_container_width=True, hide_index=True
+                contribution_frame.style.format(
+                    {
+                        "current_probability": "{:.6g}",
+                        "previous_probability": "{:.6g}",
+                        "tvd_contribution": "{:.6g}",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
             )
 
 
@@ -271,7 +444,8 @@ def _render_compare(scenario, config) -> None:
 
 def _render_audit(execution) -> None:
     st.subheader("Tamper-evident execution record")
-    verification = verify_events(execution.audit.events)
+    events = execution.audit.events
+    verification = verify_events(events)
     if verification.get("valid"):
         st.success(
             f"Audit valid: {verification.get('events')} events, "
@@ -280,19 +454,113 @@ def _render_audit(execution) -> None:
     else:
         st.error(f"Audit invalid: {verification}")
 
+    all_event_types = sorted({str(event["event_type"]) for event in events})
+    selected_types = st.multiselect(
+        "Event types",
+        options=all_event_types,
+        default=all_event_types,
+        help="Filter the timeline without changing the underlying audit log.",
+    )
+    filtered_events = [
+        event for event in events if event["event_type"] in selected_types
+    ]
+
+    st.markdown("#### Event timeline")
+    if filtered_events:
+        st.dataframe(
+            _audit_event_rows(filtered_events),
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.info("No events match the current filter.")
+        return
+
+    st.markdown("#### Event navigator")
+    sequences = [int(event["sequence"]) for event in filtered_events]
+    by_sequence = {int(event["sequence"]): event for event in filtered_events}
+    nav_key = f"audit-event-sequence-{execution.audit.run_id}"
+    if nav_key not in st.session_state or st.session_state[nav_key] not in sequences:
+        st.session_state[nav_key] = sequences[0]
+
+    previous_col, next_col, position_col = st.columns([1, 1, 3])
+    current_index = sequences.index(int(st.session_state[nav_key]))
+    previous_col.button(
+        "← Previous",
+        key=f"audit-prev-{execution.audit.run_id}",
+        disabled=current_index == 0,
+        on_click=_move_audit_event,
+        args=(nav_key, sequences, -1),
+        use_container_width=True,
+    )
+    next_col.button(
+        "Next →",
+        key=f"audit-next-{execution.audit.run_id}",
+        disabled=current_index == len(sequences) - 1,
+        on_click=_move_audit_event,
+        args=(nav_key, sequences, 1),
+        use_container_width=True,
+    )
+
+    selected_sequence = position_col.selectbox(
+        "Jump to event",
+        options=sequences,
+        format_func=lambda sequence: (
+            f"#{sequence} · {by_sequence[sequence]['event_type']}"
+        ),
+        key=nav_key,
+        label_visibility="collapsed",
+    )
+    selected_event = by_sequence[int(selected_sequence)]
+    selected_payload = selected_event.get("payload", {})
+
+    detail_left, detail_middle, detail_right = st.columns(3)
+    detail_left.metric("Sequence", int(selected_event["sequence"]))
+    detail_middle.metric("Event type", str(selected_event["event_type"]))
+    detail_right.metric(
+        "Shots",
+        (
+            f"{int(selected_payload['total_shots']):,}"
+            if selected_payload.get("total_shots") is not None
+            else "—"
+        ),
+    )
+    st.caption(str(selected_event.get("recorded_at_utc", "")))
+
+    st.markdown("**Payload (readable view)**")
+    st.json(_compact_numbers(selected_payload), expanded=True)
+    with st.expander("Hash-chain metadata and full event"):
+        st.code(
+            "\n".join(
+                [
+                    f"previous_event_hash: {selected_event.get('previous_event_hash', '')}",
+                    f"event_hash:          {selected_event.get('event_hash', '')}",
+                ]
+            )
+        )
+        st.json(selected_event, expanded=False)
+
     st.download_button(
-        "Download audit JSONL",
+        "Download complete audit JSONL",
         data=audit_jsonl(execution.audit),
         file_name=f"{execution.scenario_id.replace(':', '-')}-audit.jsonl",
         mime="application/x-ndjson",
+        use_container_width=True,
     )
 
+    st.divider()
+    st.markdown("#### Tamper test")
+    st.caption(
+        "Create an in-memory copy with one batch event modified, then verify the hash chain again."
+    )
     if st.button("Create tampered copy", key="tamper-button"):
-        st.session_state["tampered_events"] = tamper_events(execution.audit.events)
+        st.session_state["tampered_events"] = tamper_events(events)
     tampered = st.session_state.get("tampered_events")
     if tampered:
-        st.code(json.dumps(tampered[1], indent=2)[:1800], language="json")
         tampered_verification = verify_events(tampered)
+        failed_sequence = tampered_verification.get("failed_sequence")
+        if failed_sequence is not None and 0 <= int(failed_sequence) < len(tampered):
+            st.json(tampered[int(failed_sequence)], expanded=False)
         if tampered_verification.get("valid"):
             st.warning(
                 "Tampered copy still verified; this should not happen for the demo mutation."
@@ -300,7 +568,7 @@ def _render_audit(execution) -> None:
         else:
             st.error(
                 "Tamper detected: "
-                f"sequence={tampered_verification.get('failed_sequence')}, "
+                f"sequence={failed_sequence}, "
                 f"reason={tampered_verification.get('reason')}"
             )
 
