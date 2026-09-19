@@ -46,11 +46,19 @@ def _check_rows(audit) -> pd.DataFrame:
 
 
 def _decision_history_chart(checks: pd.DataFrame, execution):
+    shot_axis = alt.Axis(
+        title="Cumulative shots",
+        format=",d",
+        tickCount=12,
+        labelOverlap=True,
+    )
+    shot_x = alt.X("shots:Q", axis=shot_axis)
+
     marginal = (
         alt.Chart(checks)
         .mark_line(point=True, strokeWidth=2)
         .encode(
-            x=alt.X("shots:Q", title="Cumulative shots", axis=alt.Axis(format=",")),
+            x=shot_x,
             y=alt.Y(
                 "marginal_tvd:Q",
                 title="TVD to look-back snapshot",
@@ -70,7 +78,7 @@ def _decision_history_chart(checks: pd.DataFrame, execution):
         alt.Chart(checks)
         .mark_line(strokeDash=[7, 5], strokeWidth=2)
         .encode(
-            x=alt.X("shots:Q"),
+            x=shot_x,
             y=alt.Y("epsilon:Q"),
         )
     )
@@ -80,7 +88,7 @@ def _decision_history_chart(checks: pd.DataFrame, execution):
         alt.Chart(passed_checks)
         .mark_point(shape="diamond", filled=True, size=80)
         .encode(
-            x="shots:Q",
+            x=shot_x,
             y="marginal_tvd:Q",
             tooltip=[
                 alt.Tooltip("shots:Q", title="Shots", format=","),
@@ -101,7 +109,7 @@ def _decision_history_chart(checks: pd.DataFrame, execution):
     stop_rule = (
         alt.Chart(stop_frame)
         .mark_rule(strokeDash=[4, 4], strokeWidth=2, color="#ff4b4b")
-        .encode(x="shots:Q")
+        .encode(x=shot_x)
     )
     stop_label = (
         alt.Chart(stop_frame)
@@ -114,7 +122,7 @@ def _decision_history_chart(checks: pd.DataFrame, execution):
             color="#ff4b4b",
         )
         .encode(
-            x="shots:Q",
+            x=shot_x,
             y=alt.value(0),
             text="label:N",
         )
@@ -131,7 +139,7 @@ def _decision_history_chart(checks: pd.DataFrame, execution):
         layers = layers + (
             alt.Chart(stop_point)
             .mark_point(filled=True, size=130, color="#ff4b4b")
-            .encode(x="shots:Q", y="marginal_tvd:Q")
+            .encode(x=shot_x, y="marginal_tvd:Q")
         )
 
     return layers.properties(height=390).interactive()
