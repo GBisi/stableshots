@@ -1,0 +1,8 @@
+{"type":"metadata","schema_version":"stableshot-replay-v1","scenario_id":"audit-walkthrough","title":"Audit walkthrough","description":"The compact synthetic sequence used to demonstrate a failed check followed by three passing checks and a stable stop.","source":"bundled synthetic replay derived from the checked-in audit example","reference_counts":{"00":217,"11":133},"recommended_config":{"batch_size":50,"lookback_batches":1,"stability":3,"epsilon":0.025,"max_shots":350},"fixed_budgets":[100,150,250],"expected_stop_reason":"stable","expected_shots":250}
+{"type":"batch","shots":50,"counts":{"00":40,"11":10}}
+{"type":"batch","shots":50,"counts":{"00":25,"11":25}}
+{"type":"batch","shots":50,"counts":{"00":31,"11":19}}
+{"type":"batch","shots":50,"counts":{"00":30,"11":20}}
+{"type":"batch","shots":50,"counts":{"00":30,"11":20}}
+{"type":"batch","shots":50,"counts":{"00":31,"11":19}}
+{"type":"batch","shots":50,"counts":{"00":30,"11":20}}
