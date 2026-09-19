@@ -1,31 +1,88 @@
 # StableShots
 
-StableShots is an online shot-stopping rule for static quantum circuit
-execution. Instead of choosing a fixed shot budget before execution, it runs the
-same circuit in small batches and stops when the cumulative empirical output
-distribution has become stable.
+StableShots is an online shot-stopping rule for static quantum-circuit execution. It consumes measurement counts in batches and stops after repeated evidence that the cumulative empirical output distribution has stabilized.
 
-This repository contains the experimental code and result artifacts for the
-paper:
+This repository includes an interactive demo artifact for the ICSOC 2026 Demonstrations and Resources track. The demo exposes the existing StableShots controller, its decision history, fixed-budget comparisons, and the tamper-evident audit log through a browser interface.
 
-> StableShots: Online Shot Stopping for Quantum Circuit Execution
+## Try the interactive demo
 
-The method is black-box: it only needs batch-level measurement counts. It does
-not inspect the circuit, backend calibration data, or a noise model.
+The fastest path is Docker:
+
+```bash
+docker compose up --build
+```
+
+Open `http://localhost:8501`.
+
+The artifact ships with three deterministic replay scenarios, so the conference demo does not need a QPU, GPU, provider account, or network access after the image has been built:
+
+- `early-stability`: a stationary stream that stops early;
+- `late-stability`: an alternating stream that reaches the configured cap;
+- `audit-walkthrough`: the compact sequence used to explain and tamper with an audited decision.
+
+The UI has four tabs:
+
+1. **Execute** shows consumed shots, the stop reason, marginal TVD, the threshold, and the decision history.
+2. **Explain** reconstructs the decisive checks and the outcomes contributing most to the last TVD change.
+3. **Compare** replays the same measurement stream with fixed-shot budgets and StableShots. TVD to the bundled reference is shown only as a post-hoc evaluation metric and is never passed to the online controller.
+4. **Audit** verifies the append-only SHA-256 hash chain, lets the attendee create a tampered copy, and shows where verification fails.
+
+### Local installation
+
+The project uses Python 3.12 or newer and `uv`.
+
+```bash
+uv sync --extra demo
+uv run stableshot self-check
+uv run stableshot demo
+```
+
+Then open `http://127.0.0.1:8501`.
+
+The deterministic self-check executes each bundled scenario with its recommended configuration, verifies the generated audit, and confirms that a controlled mutation is detected.
+
+## Replay format
+
+Bundled scenarios live in `src/stableshot/demo_data/` and use JSON Lines with schema identifier `stableshot-replay-v1`.
+
+A replay begins with one metadata object:
+
+```json
+{"type":"metadata","schema_version":"stableshot-replay-v1","scenario_id":"example","reference_counts":{"00":60,"11":40},"recommended_config":{"batch_size":50,"lookback_batches":1,"stability":2,"epsilon":0.01,"max_shots":100}}
+```
+
+It is followed by batch records:
+
+```json
+{"type":"batch","shots":50,"counts":{"00":30,"11":20}}
+{"type":"batch","shots":50,"counts":{"00":30,"11":20}}
+```
+
+A batch may include `"repeat": N` to compact repeated deterministic batches. The loader validates that every count map sums to the declared number of shots. The optional `reference_counts` field is used only after execution for evaluation.
+
+The reusable loader is `stableshot.replay.load_replay()`.
+
+## Command-line interface
+
+```bash
+stableshot demo [--host HOST] [--port PORT]
+stableshot self-check
+stableshot audit verify AUDIT.jsonl
+stableshot audit explain AUDIT.jsonl
+stableshot audit plot AUDIT.jsonl OUTPUT.png
+```
+
+The package entry point now resolves to `stableshot.cli:main`.
 
 ## Method
 
-For a fixed circuit and backend, StableShots accumulates measurement counts over
-batches of `b` shots. After each batch, it compares the current cumulative
-empirical distribution with the cumulative distribution from `lookback_batches`
-batches earlier using Total Variation Distance (TVD):
+For a fixed circuit and backend, StableShots accumulates measurement counts over batches of `b` shots. After each batch it compares the current cumulative empirical distribution with the cumulative distribution from `lookback_batches` batches earlier using Total Variation Distance:
 
 ```text
 TVD(P, Q) = 1/2 * sum_x |P(x) - Q(x)|
 ```
 
-Execution stops when this marginal TVD is at most `epsilon` for `stability`
-consecutive checks, or when the maximum budget is reached.
+Execution stops when this marginal TVD is at most `epsilon` for `stability` consecutive checks, or when `max_shots` is reached.
 
 The selected paper configuration is:
 
@@ -33,323 +90,53 @@ The selected paper configuration is:
 b50_lb3_k5_eps0p005
 ```
 
-That means:
+StableShots is a diminishing-returns heuristic. It does not certify closeness to the unknown backend-induced distribution.
 
-- `batch_size = 50`
-- `lookback_batches = 3`
-- `stability = 5`
-- `epsilon = 0.005`
-- `max_shots = 20000`
+## Auditable decisions
 
-This configuration compares the current cumulative distribution with the one
-150 shots earlier and requires five consecutive passing comparisons.
-
-StableShots is a diminishing-returns heuristic. It does not prove closeness to
-the unknown backend-induced distribution; it stops when additional batches have
-small observed effect on the cumulative empirical distribution.
-
-## Auditable StableShots Decisions
-
-StableShots can optionally produce an append-only audit trail for each stopping
-decision. The audit answers four questions:
-
-1. **Why did execution stop?** It records whether the controller became stable,
-   reached `max_shots`, or exhausted the supplied batch stream.
-2. **Which data was used?** It records each accepted batch, cumulative-count
-   fingerprints, and optionally the full counts.
-3. **Which history was compared?** Every stability check references the current
-   round and the exact lookback round used in the TVD calculation.
-4. **How did the decision evolve?** It records every TVD value, threshold result,
-   and stable-streak transition, and can render a decision-history plot.
-
-Auditing is optional. The original `run_stable_shots()` return type is unchanged.
-Use `run_stable_shots_audited()` when the caller also needs the audit object.
-
-### Minimal audited run
-
-```python
-from collections import Counter
-
-from stableshot.audit import AuditPolicy
-from stableshot.main import StableShotsConfig, run_stable_shots_audited
-
-raw_batches = [
-    (50, Counter({"00": 31, "11": 19})),
-    (50, Counter({"00": 30, "11": 20})),
-    (50, Counter({"00": 31, "11": 19})),
-    (50, Counter({"00": 30, "11": 20})),
-]
-
-config = StableShotsConfig(
-    batch_size=50,
-    lookback_batches=1,
-    stability=2,
-    epsilon=0.01,
-    max_shots=200,
-)
-
-counts, shots, last_delta, reason, audit = run_stable_shots_audited(
-    raw_batches,
-    config,
-    context={
-        "trace_id": "example-circuit",
-        "backend": "fake_kyiv",
-        "sampling_strategy": "sequential",
-        "sampling_seed": 0,
-        "source_batch_size": 50,
-        # Add a Git commit, container image digest, job ID, or dataset version
-        # here when those identifiers are available.
-        "code_revision": "<git-commit>",
-    },
-    policy=AuditPolicy(
-        include_batch_counts=True,
-        include_check_counts=False,
-        top_k_contributions=10,
-    ),
-)
-
-print(reason, shots, last_delta)
-print(audit.explain()["explanation"])
-audit.write_jsonl("results/audit/example-circuit.jsonl")
-```
-
-`context` is caller-defined provenance. It should contain enough information to
-reconstruct where the input batches came from, such as the circuit or trace ID,
-backend, sampling policy, random seed, source batch size, dataset version, code
-revision, and execution job ID.
-
-### Audit event model
-
-Each JSONL line is one event with a monotonically increasing sequence number,
-timestamp, run ID, previous-event hash, payload, and event hash.
+Use `run_stable_shots_audited()` when the caller also needs provenance and a reconstructable stopping decision. The audit records:
 
 | Event | Purpose |
 | --- | --- |
-| `run_started` | Records the full StableShots configuration, execution context, retention policy, and decision scope. |
-| `batch_accepted` | Records the execution round, batch size, cumulative shots, batch fingerprint, cumulative fingerprint, and optionally batch counts. |
-| `stability_check` | Records the current and lookback rounds, TVD, `epsilon`, pass/fail result, streak transition, count fingerprints, and largest per-outcome TVD contributions. |
-| `stop_decision` | Records the final reason code, shot count, round, stable streak, checks performed, and final TVD evidence. |
+| `run_started` | configuration, execution context, retention policy, decision scope |
+| `batch_accepted` | batch and cumulative-count fingerprints, optional raw counts |
+| `stability_check` | compared rounds, TVD, threshold result, streak transition, top outcome contributions |
+| `stop_decision` | final reason, shot count, stable streak, and final evidence |
 
-The supported stop reason codes are:
+Every event includes the previous event hash and its own SHA-256 hash. This detects local modification, insertion, deletion, and reordering inside an exported log. It does not provide non-repudiation if an actor can replace the complete file.
 
-- `stable`: the required number of consecutive TVD checks passed.
-- `max_budget`: `max_shots` was reached before the stability criterion passed.
-- `input_exhausted`: the supplied batch stream ended before either condition was
-  reached.
+The reference distributions used in the research evaluation are not decision inputs. The demo preserves this boundary: reference counts are used only by post-hoc comparison code.
 
-Separating `input_exhausted` from `max_budget` prevents an incomplete input trace
-from being reported as an intentional budget stop.
+## Repository layout
 
-### Explain, verify, and plot an audit
+```text
+src/stableshot/main.py          StableShots controller and paper experiments
+src/stableshot/audit.py         audit events, explanation, verification, plotting
+src/stableshot/replay.py        deterministic replay format and loader
+src/stableshot/demo.py          demo orchestration and artifact self-check
+src/stableshot/webapp.py        Streamlit application
+src/stableshot/cli.py           package command-line interface
+src/stableshot/demo_data/       bundled offline replay scenarios
+demo/app.py                     direct Streamlit launcher
+Dockerfile                      containerized demo
+compose.yaml                    one-command conference setup
+tests/test_audit.py             existing audit tests
+tests/test_replay.py            replay-format tests
+tests/test_demo.py              deterministic artifact tests
+```
 
-The audit module includes a small command-line interface:
+## Running tests
 
 ```bash
-uv run python -m stableshot.audit verify \
-  results/audit/example-circuit.jsonl
-
-uv run python -m stableshot.audit explain \
-  results/audit/example-circuit.jsonl
-
-uv run python -m stableshot.audit plot \
-  results/audit/example-circuit.jsonl \
-  results/audit/example-circuit.png
-```
-
-`verify` recomputes the hash chain and reports the first invalid event if an
-event was edited, removed, inserted, or reordered. `explain` generates a
-structured summary of the stop decision. `plot` renders marginal TVD against
-cumulative shots, the `epsilon` threshold, and passing checks.
-
-The same operations are available from Python:
-
-```python
-from stableshot.audit import (
-    explain_events,
-    plot_events,
-    read_jsonl,
-    verify_events,
-)
-
-events = read_jsonl("results/audit/example-circuit.jsonl")
-print(verify_events(events))
-print(explain_events(events))
-plot_events(events, "results/audit/example-circuit.png")
-```
-
-Example artifacts are checked in under `example_audit/`:
-
-```text
-example_audit/audit_demo.jsonl
-example_audit/audit_demo.png
-example_audit/audit_demo_explanation.json
-```
-
-### What the explanation uses
-
-An online StableShots decision uses only:
-
-- Batch measurement counts.
-- Cumulative measurement-count history.
-- The cumulative snapshot selected by `lookback_batches`.
-- TVD, `epsilon`, and the consecutive stable-streak history.
-- The configured shot budget.
-
-The 20,000-shot reference distribution and `tvd_to_reference` are **not**
-decision inputs. They are post-hoc evaluation data used by the experiments to
-measure the quality of a completed run. Store those values separately from the
-online decision audit so an audit consumer cannot mistake evaluation evidence
-for information available to the stopping controller.
-
-### Per-outcome evidence
-
-Each `stability_check` includes the largest per-outcome TVD contributions. For an
-outcome `x`, the recorded contribution is:
-
-```text
-0.5 * |P_current(x) - P_lookback(x)|
-```
-
-These rows identify which measured outcomes caused the empirical distribution
-to move. `top_k_contributions` controls how many are retained.
-
-### Audit retention policy
-
-`AuditPolicy` controls the detail-versus-size trade-off:
-
-```python
-AuditPolicy(
-    include_batch_counts=True,
-    include_check_counts=False,
-    top_k_contributions=10,
-)
-```
-
-- `include_batch_counts=True` stores the raw count map for every accepted batch.
-  This provides direct replay evidence but can produce large logs.
-- `include_check_counts=True` stores both cumulative count maps used by every TVD
-  check. This is the most self-contained mode, but duplicates substantial data.
-- When a count map is not retained, the audit still stores its shot count,
-  support size, and SHA-256 fingerprint.
-- `top_k_contributions=0` disables per-outcome contribution rows.
-
-For large output spaces, a practical default is to retain raw batch counts,
-omit repeated cumulative check counts, and archive the source batches in an
-immutable object store. The count fingerprints then bind the audit events to the
-archived source data.
-
-### Tamper evidence and trust boundary
-
-Every event is chained to the preceding event with SHA-256. This detects local
-modification, insertion, deletion, and reordering within an exported audit log.
-It does not by itself provide non-repudiation: an actor that can replace the
-whole file can replace the complete chain.
-
-For stronger assurance, persist the final head hash outside the audit file, for
-example by:
-
-- Signing it with an organizational key.
-- Writing it to an append-only database or transparency log.
-- Attaching it to an experiment-tracking record.
-- Publishing it with the corresponding result artifact.
-
-The audit establishes what the instrumented controller observed and decided. It
-does not prove that an external backend honestly produced the supplied counts.
-Backend job identifiers, provider receipts, or signed acquisition records should
-therefore be included in `context` when available.
-
-### Current audit scope
-
-The prototype instruments the single-controller `run_stable_shots()` path in
-`src/stableshot/main.py`. The multi-QPU controllers in
-`src/stableshot/multi_qpu_main.py` are not yet instrumented. A multi-QPU audit
-should use the same event format with a `controller_id` for each local backend
-and the aggregate controller, and should additionally record backend weights,
-active/frozen status, and the distributions included in every aggregate check.
-
-See `AUDIT_DESIGN.md` for the design rationale and the proposed multi-QPU
-extension.
-
-## Paper Results
-
-The evaluation uses 180 QSimBench traces:
-
-- 6 circuit families: `dj`, `qaoa`, `qft`, `qnn`, `random`, `vqe`
-- 6 sizes: 4, 6, 8, 10, 12, and 14 qubits
-- 5 noisy IBM simulated backends
-- 20,000-shot empirical references
-
-StableShots configurations are selected through a 75-point grid:
-
-- `batch_size`: `50`
-- `lookback_batches`: `1,2,3,5,10`
-- `stability`: `1,2,3,5,10`
-- `epsilon`: `0.001,0.0025,0.005`
-
-The paper uses 100 backend-holdout repetitions. In each repetition, one backend
-per algorithm-size cell is held out for test evaluation and the remaining
-backends are used for validation.
-
-For the TVD `<= 0.05` target, the selected configuration reaches the target on
-all held-out test evaluations with median 7,650 shots. On the full 180-trace
-benchmark, it reaches the same target with median 7,700 shots.
-
-## Repository Layout
-
-```text
-src/stableshot/main.py                         Main StableShots grid and baseline experiments
-src/stableshot/audit.py                        Audit events, explanations, verification, and plotting
-src/stableshot/multi_qpu_main.py               Multi-QPU experiment implementation
-src/stableshot/select_conf.py                  Strategy ranking and Pareto-frontier selection
-src/stableshot/q3.py                           Hoeffding/Weissman scaling analysis
-src/stableshot/grid_size_robust_selection.py   Size-aware robust selection over aggregate outputs
-tests/test_audit.py                            Audit behavior and tamper-detection tests
-example_audit/                                 Example JSONL, explanation, and plot
-AUDIT_DESIGN.md                                Audit architecture and extension notes
-results/                                       Materialized experiment outputs
-strategy_selection/                            Strategy-selection summaries
-select.sh                                      Example strategy-selection command
-q3.sh                                          Example RQ3 bound-scaling command
-```
-
-Key result files include:
-
-```text
-results/grid_selected_test_summary.csv
-results/grid_selected_test_metrics.csv
-results/grid_repeated_selected_summary.csv
-results/grid_config_frequency.csv
-results/grid_size_robust_selected_test_summary.csv
-results/rq3_grouped_scaling_sensitivity/table1_style_comparison.csv
-strategy_selection/recommended_strategies.csv
-strategy_selection/pareto_frontier.csv
-```
-
-## Installation
-
-The project is configured with `uv` and requires Python 3.12 or newer.
-
-```bash
-uv sync
-```
-
-The main dependencies are `pandas`, `matplotlib`, and `qsimbench`.
-
-## Running the Tests
-
-Run the audit tests with:
-
-```bash
+uv sync --extra demo
 PYTHONPATH=src uv run python -m unittest discover -s tests -v
 ```
 
-The tests cover stable-decision explanation, distinction between input
-exhaustion and budget exhaustion, JSONL round-tripping, and hash-chain tamper
-detection.
+The artifact-level tests cover deterministic early stopping, cap termination, replay validation, separation of reference data from online decision context, policy comparison, hash-chain verification, and tamper detection.
 
-## Running the Experiments
+## Running the paper experiments
 
-Run a StableShots grid over QSimBench traces:
+The original experiment commands remain available. For example:
 
 ```bash
 uv run python src/stableshot/main.py \
@@ -362,71 +149,13 @@ uv run python src/stableshot/main.py \
   --output-dir results/stable_shots_grid
 ```
 
-Select and rank StableShots configurations from trace metrics:
+## Scope and limitations
 
-```bash
-uv run python src/stableshot/select_conf.py \
-  --trace-metrics results/stable_shots_grid/trace_metrics.csv \
-  --target-tvd 0.05 \
-  --min-success-rate 1.0 \
-  --risk-metric max \
-  --objective min_median_shots
-```
+StableShots targets static circuits. The paper reports TVD against finite 20,000-shot noisy-backend empirical references, not against unknown true backend-induced distributions. The experiments use noisy simulated QSimBench backends; live QPU behavior, queueing overhead, and backend drift require separate evaluation.
 
-Run the grouped Hoeffding/Weissman scaling analysis:
-
-```bash
-uv run python src/stableshot/q3.py \
-  --fixed-subset-metrics results/aggregate_fixed_subset_metrics.csv \
-  --stableshots-trace-metrics results/aggregate_stableshots_subset_metrics.csv \
-  --output-dir results/rq3_grouped_scaling_sensitivity \
-  --taus 0.05 \
-  --bound-delta 0.05 \
-  --calibrations median,p75,p90 \
-  --group-modes global,size,size_algorithm \
-  --split-repetitions 100
-```
-
-The helper scripts `select.sh` and `q3.sh` contain shorter versions of these
-commands for the current checked-in result layout.
-
-## Reusing StableShots
-
-The core stopping rule is represented by `StableShotsConfig` in
-`src/stableshot/main.py`. A configuration is identified by:
-
-```text
-b{batch_size}_lb{lookback_batches}_k{stability}_eps{epsilon}
-```
-
-For example, `b50_lb3_k5_eps0p005` compares the current cumulative distribution
-against the one 150 shots earlier and requires five consecutive stable checks.
-
-To apply the rule outside QSimBench, provide repeated batches of counts for the
-same static circuit and backend, preserve cumulative counts, and evaluate the
-same marginal TVD stopping condition after each batch. Use the audited API when
-that external system also needs data provenance, decision explanations, or a
-verifiable execution record.
-
-## Scope and Limitations
-
-StableShots targets static circuits: the circuit structure and parameters must
-remain fixed while shots are collected. It is not a replacement for
-observable-specific measurement allocation in variational algorithms, although
-it can be used locally inside a single fixed-parameter iteration.
-
-The reported TVD values are measured against finite 20,000-shot noisy-backend
-empirical references, not against the unknown true backend-induced
-distributions. The experiments use noisy simulated QSimBench backends; live QPU
-behavior, queueing overhead, and backend drift require separate evaluation.
-
-An audit trail improves traceability and reproducibility, but it does not turn
-the stopping heuristic into a statistical guarantee. It explains the data and
-history used by the rule and why the implemented rule stopped.
+The bundled conference scenarios are deterministic synthetic replays. They make the stopping and audit mechanics reproducible without external services; the research experiments remain the source for empirical claims about QSimBench workloads.
 
 ## Citation
-
-If you use this repository, cite the related paper:
 
 ```bibtex
 @inproceedings{Bisicchia2026Stableshots,

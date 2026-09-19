@@ -1,7 +1,7 @@
 [project]
 name = "stableshot"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "Adaptive and auditable shot control for static quantum-circuit execution"
 readme = "README.md"
 authors = [
     { name = "GBisi", email = "giuseppe.bisicchia@phd.unipi.it" }
@@ -13,9 +13,17 @@ dependencies = [
     "qsimbench>=0.1.1",
 ]
 
+[project.optional-dependencies]
+demo = [
+    "streamlit>=1.49,<2",
+]
+
 [project.scripts]
-stableshot = "stableshot:main"
+stableshot = "stableshot.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/stableshot"]
