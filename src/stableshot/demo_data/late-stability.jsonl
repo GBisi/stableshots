@@ -1,0 +1,21 @@
+{"type":"metadata","schema_version":"stableshot-replay-v1","scenario_id":"late-stability","title":"No stability before cap","description":"An alternating two-outcome stream that remains above the default stability threshold until the cap.","source":"bundled synthetic replay","reference_counts":{"0":500,"1":500},"recommended_config":{"batch_size":50,"lookback_batches":3,"stability":5,"epsilon":0.005,"max_shots":1000},"fixed_budgets":[250,500,900],"expected_stop_reason":"max_budget","expected_shots":1000}
+{"type":"batch","shots":50,"counts":{"0":50}}
+{"type":"batch","shots":50,"counts":{"1":50}}
+{"type":"batch","shots":50,"counts":{"0":50}}
+{"type":"batch","shots":50,"counts":{"1":50}}
+{"type":"batch","shots":50,"counts":{"0":50}}
+{"type":"batch","shots":50,"counts":{"1":50}}
+{"type":"batch","shots":50,"counts":{"0":50}}
+{"type":"batch","shots":50,"counts":{"1":50}}
+{"type":"batch","shots":50,"counts":{"0":50}}
+{"type":"batch","shots":50,"counts":{"1":50}}
+{"type":"batch","shots":50,"counts":{"0":50}}
+{"type":"batch","shots":50,"counts":{"1":50}}
+{"type":"batch","shots":50,"counts":{"0":50}}
+{"type":"batch","shots":50,"counts":{"1":50}}
+{"type":"batch","shots":50,"counts":{"0":50}}
+{"type":"batch","shots":50,"counts":{"1":50}}
+{"type":"batch","shots":50,"counts":{"0":50}}
+{"type":"batch","shots":50,"counts":{"1":50}}
+{"type":"batch","shots":50,"counts":{"0":50}}
+{"type":"batch","shots":50,"counts":{"1":50}}

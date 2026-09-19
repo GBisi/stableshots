@@ -1,0 +1,2 @@
+{"type":"metadata","schema_version":"stableshot-replay-v1","scenario_id":"early-stability","title":"Early stability","description":"A stationary two-outcome stream that reaches the stability rule quickly.","source":"bundled synthetic replay","reference_counts":{"00":600,"11":400},"recommended_config":{"batch_size":50,"lookback_batches":3,"stability":5,"epsilon":0.005,"max_shots":1000},"fixed_budgets":[200,400,800],"expected_stop_reason":"stable","expected_shots":400}
+{"type":"batch","shots":50,"repeat":20,"counts":{"00":30,"11":20}}

@@ -1,0 +1,7 @@
+services:
+  demo:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"

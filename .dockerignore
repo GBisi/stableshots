@@ -1,0 +1,9 @@
+.git
+.github
+.venv
+__pycache__
+*.pyc
+.DS_Store
+results
+strategy_selection
+example_audit
