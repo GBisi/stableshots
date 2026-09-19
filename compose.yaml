@@ -5,3 +5,10 @@ services:
       - "8501:8501"
     environment:
       STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+      QSIMBENCH_CACHE_DIR: /app/.qsimbench_cache
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    volumes:
+      - qsimbench-cache:/app/.qsimbench_cache
+
+volumes:
+  qsimbench-cache:

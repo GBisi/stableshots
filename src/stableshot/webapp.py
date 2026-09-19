@@ -17,7 +17,13 @@ from stableshot.demo import (
     tamper_events,
 )
 from stableshot.main import StableShotsConfig
+from stableshot.qsimbench_source import materialize_qsimbench_scenario, qsimbench_catalog
 from stableshot.replay import available_scenarios, load_bundled_scenario
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_qsimbench_catalog(circuit_kind: str):
+    return qsimbench_catalog(circuit_kind)
 
 
 def _check_rows(audit) -> pd.DataFrame:
@@ -42,7 +48,11 @@ def _configuration_controls(scenario):
     recommended = config_for_scenario(scenario)
     st.sidebar.subheader("StableShots policy")
     batch_size = st.sidebar.number_input(
-        "Batch size", min_value=1, value=recommended.batch_size, step=1, key=f"batch-{scenario.scenario_id}"
+        "Batch size",
+        min_value=1,
+        value=recommended.batch_size,
+        step=1,
+        key=f"batch-{scenario.scenario_id}",
     )
     lookback = st.sidebar.number_input(
         "Look-back batches",
@@ -83,6 +93,105 @@ def _configuration_controls(scenario):
     )
 
 
+def _bundled_source_controls():
+    scenario_ids = sorted(available_scenarios())
+    selected_id = st.sidebar.selectbox("Replay scenario", scenario_ids)
+    return load_bundled_scenario(selected_id)
+
+
+def _qsimbench_source_controls():
+    st.sidebar.caption(
+        "QSimBench mode browses the live dataset index. Internet access is needed for the index "
+        "and for traces that are not already in the QSimBench cache."
+    )
+    circuit_kind = st.sidebar.selectbox("Circuit kind", ["circuit", "mirror"])
+    try:
+        catalog = _cached_qsimbench_catalog(circuit_kind)
+    except Exception as exc:
+        st.sidebar.error(f"Could not load QSimBench index: {exc}")
+        return None
+
+    if not catalog:
+        st.sidebar.warning("QSimBench returned an empty trace index.")
+        return None
+
+    algorithm = st.sidebar.selectbox("Algorithm", sorted(catalog))
+    sizes = sorted(catalog[algorithm])
+    size = int(st.sidebar.selectbox("Size (qubits)", sizes))
+    backends = list(catalog[algorithm][size])
+    backend = st.sidebar.selectbox("Backend", backends)
+
+    st.sidebar.subheader("QSimBench materialization")
+    sampling_strategy = st.sidebar.selectbox(
+        "Sampling strategy",
+        ["sequential", "random"],
+        help=(
+            "Sequential follows the QSimBench trace cursor at materialization time. "
+            "Random uses the supplied seed and is convenient for repeatable resampling."
+        ),
+    )
+    sampling_seed = int(
+        st.sidebar.number_input("Sampling seed", min_value=0, value=0, step=1)
+    )
+    materialization_shots = int(
+        st.sidebar.number_input(
+            "Materialization shots",
+            min_value=1000,
+            max_value=20000,
+            value=20000,
+            step=50,
+            help="The final materialized prefix is used only as a post-hoc reference distribution.",
+        )
+    )
+    force = st.sidebar.checkbox(
+        "Refresh QSimBench cache",
+        value=False,
+        help="Ignore cached QSimBench history files and download them again.",
+    )
+
+    selection_key = (
+        circuit_kind,
+        algorithm,
+        size,
+        backend,
+        sampling_strategy,
+        sampling_seed,
+        materialization_shots,
+    )
+    if st.sidebar.button("Load QSimBench trace", use_container_width=True):
+        try:
+            with st.spinner(
+                f"Materializing {algorithm}/{size}/{backend} from QSimBench..."
+            ):
+                scenario = materialize_qsimbench_scenario(
+                    algorithm=algorithm,
+                    size=size,
+                    backend=backend,
+                    circuit_kind=circuit_kind,
+                    materialization_shots=materialization_shots,
+                    sampling_strategy=sampling_strategy,
+                    sampling_seed=sampling_seed,
+                    force=force,
+                )
+            st.session_state["qsimbench_scenario"] = scenario
+            st.session_state["qsimbench_selection_key"] = selection_key
+            st.session_state.pop("execution", None)
+            st.session_state.pop("tampered_events", None)
+        except Exception as exc:
+            st.sidebar.error(f"QSimBench materialization failed: {exc}")
+
+    loaded = st.session_state.get("qsimbench_scenario")
+    loaded_key = st.session_state.get("qsimbench_selection_key")
+    if loaded is None or loaded_key != selection_key:
+        st.info(
+            "Choose a QSimBench algorithm, size, and backend in the sidebar, then click "
+            "**Load QSimBench trace**. The materialized batches are kept in this session so "
+            "you can rerun StableShots with different policy parameters without downloading again."
+        )
+        return None
+    return loaded
+
+
 def _render_execute(execution, scenario) -> None:
     posthoc = posthoc_tvd(execution, scenario)
     col1, col2, col3, col4 = st.columns(4)
@@ -108,10 +217,12 @@ def _render_execute(execution, scenario) -> None:
 
     with st.expander("Online decision boundary"):
         st.write(
-            "The controller receives only replayed measurement batches, cumulative count history, "
-            "the configured threshold, the stability streak, and the shot cap. The reference counts "
-            "shown above are evaluated only after the run finishes."
+            "The controller receives only measurement batches, cumulative count history, "
+            "the configured threshold, the stability streak, and the shot cap. The reference "
+            "counts shown above are evaluated only after the run finishes."
         )
+        if scenario.context:
+            st.json(dict(scenario.context))
 
 
 def _render_explain(execution) -> None:
@@ -134,16 +245,22 @@ def _render_explain(execution) -> None:
         )
         st.dataframe(table, use_container_width=True, hide_index=True)
 
-    checks = [event["payload"] for event in execution.audit.events if event["event_type"] == "stability_check"]
+    checks = [
+        event["payload"]
+        for event in execution.audit.events
+        if event["event_type"] == "stability_check"
+    ]
     if checks:
         contributions = checks[-1].get("top_outcome_contributions", [])
         if contributions:
             st.subheader("Largest contributors to the last TVD change")
-            st.dataframe(pd.DataFrame(contributions), use_container_width=True, hide_index=True)
+            st.dataframe(
+                pd.DataFrame(contributions), use_container_width=True, hide_index=True
+            )
 
 
 def _render_compare(scenario, config) -> None:
-    st.subheader("Same replay, different execution policies")
+    st.subheader("Same measurement stream, different execution policies")
     rows = compare_policies(scenario, config)
     frame = pd.DataFrame(rows)
     st.dataframe(frame, use_container_width=True, hide_index=True)
@@ -157,7 +274,8 @@ def _render_audit(execution) -> None:
     verification = verify_events(execution.audit.events)
     if verification.get("valid"):
         st.success(
-            f"Audit valid: {verification.get('events')} events, head {str(verification.get('head_hash'))[:16]}..."
+            f"Audit valid: {verification.get('events')} events, "
+            f"head {str(verification.get('head_hash'))[:16]}..."
         )
     else:
         st.error(f"Audit invalid: {verification}")
@@ -165,7 +283,7 @@ def _render_audit(execution) -> None:
     st.download_button(
         "Download audit JSONL",
         data=audit_jsonl(execution.audit),
-        file_name=f"{execution.scenario_id}-audit.jsonl",
+        file_name=f"{execution.scenario_id.replace(':', '-')}-audit.jsonl",
         mime="application/x-ndjson",
     )
 
@@ -176,7 +294,9 @@ def _render_audit(execution) -> None:
         st.code(json.dumps(tampered[1], indent=2)[:1800], language="json")
         tampered_verification = verify_events(tampered)
         if tampered_verification.get("valid"):
-            st.warning("Tampered copy still verified; this should not happen for the bundled demo mutation.")
+            st.warning(
+                "Tampered copy still verified; this should not happen for the demo mutation."
+            )
         else:
             st.error(
                 "Tamper detected: "
@@ -189,16 +309,26 @@ def main() -> None:
     st.set_page_config(page_title="StableShots Demo", page_icon="SS", layout="wide")
     st.title("StableShots: adaptive and auditable shot control")
     st.write(
-        "Run a deterministic replay, inspect the stopping evidence, compare the same measurement stream "
-        "with fixed-shot policies, and verify the execution audit."
+        "Use a bundled offline replay or browse QSimBench traces, then inspect the stopping "
+        "evidence, compare fixed-shot policies, and verify the execution audit."
     )
 
-    scenario_ids = sorted(available_scenarios())
-    selected_id = st.sidebar.selectbox("Replay scenario", scenario_ids)
-    scenario = load_bundled_scenario(selected_id)
+    source_mode = st.sidebar.radio(
+        "Trace source",
+        ["Bundled replay", "QSimBench"],
+        help="Bundled replays are offline. QSimBench exposes the live benchmark catalog.",
+    )
+    scenario = (
+        _bundled_source_controls()
+        if source_mode == "Bundled replay"
+        else _qsimbench_source_controls()
+    )
+    if scenario is None:
+        return
+
     st.sidebar.caption(scenario.description)
     st.sidebar.write(f"Source: {scenario.source}")
-    st.sidebar.write(f"Replay length: {scenario.total_shots:,} shots")
+    st.sidebar.write(f"Materialized length: {scenario.total_shots:,} shots")
     config = _configuration_controls(scenario)
 
     if st.sidebar.button("Run execution", type="primary", use_container_width=True):
@@ -210,11 +340,13 @@ def main() -> None:
     execution = st.session_state.get("execution")
     execution_scenario_id = st.session_state.get("execution_scenario_id")
     if execution is None or execution_scenario_id != scenario.scenario_id:
-        st.info("Choose a scenario and run it from the sidebar.")
+        st.info("The trace is ready. Configure StableShots in the sidebar and click **Run execution**.")
         return
 
     effective_config = st.session_state.get("execution_config", config)
-    execute_tab, explain_tab, compare_tab, audit_tab = st.tabs(["Execute", "Explain", "Compare", "Audit"])
+    execute_tab, explain_tab, compare_tab, audit_tab = st.tabs(
+        ["Execute", "Explain", "Compare", "Audit"]
+    )
     with execute_tab:
         _render_execute(execution, scenario)
     with explain_tab:

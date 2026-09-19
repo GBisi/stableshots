@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Sequence, Tuple
 
@@ -23,6 +23,7 @@ class ReplayScenario:
     fixed_budgets: Tuple[int, ...]
     expected_stop_reason: str | None = None
     expected_shots: int | None = None
+    context: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def total_shots(self) -> int:
@@ -116,6 +117,10 @@ def load_replay(path: Path | str) -> ReplayScenario:
     if any(value > sum(shots for shots, _ in batches) for value in fixed_budgets):
         raise ReplayFormatError("fixed_budgets cannot exceed replay length")
 
+    context_raw = metadata.get("context", {})
+    if not isinstance(context_raw, dict):
+        raise ReplayFormatError("context must be a JSON object")
+
     return ReplayScenario(
         scenario_id=str(metadata.get("scenario_id", replay_path.stem)),
         title=str(metadata.get("title", replay_path.stem)),
@@ -129,6 +134,7 @@ def load_replay(path: Path | str) -> ReplayScenario:
             str(metadata["expected_stop_reason"]) if metadata.get("expected_stop_reason") is not None else None
         ),
         expected_shots=(int(metadata["expected_shots"]) if metadata.get("expected_shots") is not None else None),
+        context={str(key): value for key, value in context_raw.items()},
     )
 
 
