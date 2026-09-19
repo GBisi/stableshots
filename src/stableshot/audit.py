@@ -20,6 +20,15 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 ZERO_HASH = "0" * 64
 
 
+def _format_metric(value: float | int) -> str:
+    """Format a numeric decision metric without binary floating-point noise."""
+    return f"{float(value):.6g}"
+
+
+def _format_metric_list(values: Sequence[float | int]) -> str:
+    return "[" + ", ".join(_format_metric(value) for value in values) + "]"
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -245,7 +254,8 @@ class StableShotsAudit:
             deltas = [float(check["delta"]) for check in decisive_checks]
             explanation = (
                 f"Stopped after {payload['total_shots']} shots because {required} consecutive checks "
-                f"had TVD <= {self.config['epsilon']}. Decisive TVDs: {deltas}."
+                f"had TVD <= {_format_metric(self.config['epsilon'])}. "
+                f"Decisive TVDs: {_format_metric_list(deltas)}."
             )
         elif reason == "max_budget":
             explanation = (
@@ -314,9 +324,11 @@ def explain_events(events: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     reason = payload["reason_code"]
     if reason == "stable":
         decisive = checks[-int(config["stability"]):]
+        decisive_values = [float(row["delta"]) for row in decisive]
         explanation = (
             f"Stopped after {payload['total_shots']} shots: {config['stability']} consecutive TVD checks "
-            f"were <= {config['epsilon']}; values={[row['delta'] for row in decisive]}."
+            f"were <= {_format_metric(config['epsilon'])}; "
+            f"values={_format_metric_list(decisive_values)}."
         )
     else:
         explanation = str(payload["reason_text"])
@@ -350,6 +362,13 @@ def plot_events(events: Sequence[Mapping[str, Any]], output_path: Path | str) ->
     passed_deltas = [float(check["delta"]) for check in checks if check["comparison_passed"]]
     if passed_shots:
         plt.scatter(passed_shots, passed_deltas, label="passed checks")
+
+    stop = next((event for event in reversed(events) if event["event_type"] == "stop_decision"), None)
+    if stop is not None:
+        stop_shots = int(stop["payload"]["total_shots"])
+        stop_reason = str(stop["payload"].get("reason_code", "stop"))
+        plt.axvline(stop_shots, linestyle=":", label=f"STOP: {stop_reason} ({stop_shots} shots)")
+
     plt.xlabel("Cumulative shots")
     plt.ylabel("TVD to lookback snapshot")
     plt.title("StableShots decision history")

@@ -5,7 +5,7 @@ import unittest
 from collections import Counter
 from pathlib import Path
 
-from stableshot.audit import AuditPolicy, read_jsonl, verify_events
+from stableshot.audit import AuditPolicy, StableShotsAudit, read_jsonl, verify_events
 from stableshot.main import StableShotsConfig, run_stable_shots_audited
 
 
@@ -55,6 +55,42 @@ class StableShotsAuditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = audit.write_jsonl(Path(tmp) / "audit.jsonl")
             self.assertTrue(verify_events(read_jsonl(path))["valid"])
+
+    def test_explanation_formats_decisive_tvds_without_float_noise(self):
+        audit = StableShotsAudit(
+            config={
+                "batch_size": 50,
+                "lookback_batches": 1,
+                "stability": 3,
+                "epsilon": 0.025,
+                "max_shots": 350,
+            }
+        )
+        deltas = [0.010000000000000009, 0.010000000000000009, 0.006000000000000005]
+        for index, delta in enumerate(deltas, start=1):
+            audit.record_check(
+                round_index=index,
+                lookback_round_index=index - 1,
+                total_shots=100 + index * 50,
+                current_counts={"0": 60, "1": 40},
+                previous_counts={"0": 59, "1": 41},
+                delta=delta,
+                epsilon=0.025,
+                streak_before=index - 1,
+                streak_after=index,
+                required_stability=3,
+            )
+        audit.record_stop(
+            reason="stable",
+            total_shots=250,
+            round_index=3,
+            stable_streak=3,
+            checks_performed=3,
+            last_delta=deltas[-1],
+        )
+        explanation = audit.explain()["explanation"]
+        self.assertIn("Decisive TVDs: [0.01, 0.01, 0.006].", explanation)
+        self.assertNotIn("000000000000", explanation)
 
 
 if __name__ == "__main__":
