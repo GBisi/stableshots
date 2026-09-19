@@ -43,9 +43,9 @@ def execute_demo(scenario: ReplayScenario, config: StableShotsConfig) -> DemoExe
     context = {
         "scenario_id": scenario.scenario_id,
         "source": scenario.source,
-        "replay_schema": "stableshot-replay-v1",
         "source_batch_count": len(scenario.batches),
         "source_shots": scenario.total_shots,
+        **dict(scenario.context),
         "decision_scope": "online controller receives batch counts only",
     }
     counts, shots, last_delta, reason, audit = run_stable_shots_audited(
