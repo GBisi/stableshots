@@ -12,9 +12,13 @@ from stableshot.demo import (
     audit_jsonl,
     compare_policies,
     config_for_scenario,
+    cumulative_distribution_snapshot,
     decisive_checks,
+    distribution_iterations,
+    distribution_table_rows,
     execute_demo,
     posthoc_tvd,
+    select_distribution_outcomes,
     tamper_events,
 )
 from stableshot.main import StableShotsConfig
@@ -143,6 +147,251 @@ def _decision_history_chart(checks: pd.DataFrame, execution):
         )
 
     return layers.properties(height=390).interactive()
+
+
+
+def _render_cumulative_distribution(execution) -> None:
+    iterations = distribution_iterations(execution.audit)
+    if not iterations:
+        st.info("No accepted batches are available for cumulative-distribution inspection.")
+        return
+
+    st.subheader("Cumulative output distribution")
+    st.caption(
+        "Inspect the empirical distribution after any accepted batch. Counts are reconstructed "
+        "from the audited batch events; frequencies are counts divided by cumulative shots."
+    )
+
+    shots_by_round = {
+        int(item["round_index"]): int(item["total_shots"])
+        for item in iterations
+    }
+    round_options = [int(item["round_index"]) for item in iterations]
+    selected_round = st.select_slider(
+        "Iteration",
+        options=round_options,
+        value=round_options[-1],
+        format_func=lambda round_index: (
+            f"Round {round_index} · {shots_by_round[int(round_index)]:,} shots"
+        ),
+        key=f"distribution-round-{execution.audit.run_id}",
+    )
+    try:
+        current = cumulative_distribution_snapshot(execution.audit, int(selected_round))
+    except (ValueError, KeyError) as exc:
+        st.warning(f"Could not reconstruct cumulative distribution: {exc}")
+        return
+
+    checks_by_round = {
+        int(event["payload"]["round_index"]): event["payload"]
+        for event in execution.audit.events
+        if event["event_type"] == "stability_check"
+    }
+    selected_check = checks_by_round.get(current.round_index)
+    lookback = None
+    if selected_check is not None:
+        try:
+            lookback = cumulative_distribution_snapshot(
+                execution.audit,
+                int(selected_check["lookback_round_index"]),
+            )
+        except (ValueError, KeyError):
+            lookback = None
+
+    summary_left, summary_middle, summary_right = st.columns(3)
+    summary_left.metric("Iteration", current.round_index)
+    summary_middle.metric("Cumulative shots", f"{current.total_shots:,}")
+    summary_right.metric("Observed outcomes", f"{len(current.counts):,}")
+
+    compare_with_lookback = st.checkbox(
+        "Compare with the look-back distribution used by this TVD check",
+        value=lookback is not None,
+        disabled=lookback is None,
+        key=f"distribution-compare-{execution.audit.run_id}-{current.round_index}",
+        help=(
+            "When a stability check exists at this iteration, show the cumulative distribution "
+            "against the exact earlier snapshot used to compute marginal TVD."
+        ),
+    )
+    comparison = lookback if compare_with_lookback else None
+
+    control_filter, control_n, control_metric = st.columns([2, 1, 2])
+    filter_label = control_filter.selectbox(
+        "Outcome filter",
+        ["Top N", "Frequency > 1%", "Frequency > 5%", "Frequency > 10%"],
+        key=f"distribution-filter-{execution.audit.run_id}",
+        help=(
+            "Top N is capped at 100. In look-back comparison mode, frequency thresholds "
+            "include outcomes exceeding the threshold in either distribution."
+        ),
+    )
+    top_n = 20
+    if filter_label == "Top N":
+        top_n = int(
+            control_n.number_input(
+                "N",
+                min_value=1,
+                max_value=100,
+                value=20,
+                step=1,
+                key=f"distribution-topn-{execution.audit.run_id}",
+            )
+        )
+    else:
+        control_n.caption("All matching outcomes")
+
+    metric = control_metric.radio(
+        "Chart values",
+        ["Frequencies", "Counts"],
+        horizontal=True,
+        key=f"distribution-metric-{execution.audit.run_id}",
+    )
+
+    filter_modes = {
+        "Top N": "top_n",
+        "Frequency > 1%": "freq_1pct",
+        "Frequency > 5%": "freq_5pct",
+        "Frequency > 10%": "freq_10pct",
+    }
+    selected_outcomes = select_distribution_outcomes(
+        current.counts,
+        comparison_counts=(comparison.counts if comparison is not None else None),
+        mode=filter_modes[filter_label],
+        top_n=top_n,
+    )
+    if not selected_outcomes:
+        st.info("No observed outcomes satisfy the selected frequency threshold.")
+        return
+
+    table_rows = distribution_table_rows(
+        current,
+        selected_outcomes,
+        comparison=comparison,
+    )
+    table = pd.DataFrame(table_rows)
+
+    chart_rows = []
+    if comparison is None:
+        for row in table_rows:
+            chart_rows.append(
+                {
+                    "outcome": row["outcome"],
+                    "distribution": f"Current · {current.total_shots:,} shots",
+                    "count": row["current_count"],
+                    "frequency": row["current_frequency"],
+                }
+            )
+    else:
+        for row in table_rows:
+            chart_rows.extend(
+                [
+                    {
+                        "outcome": row["outcome"],
+                        "distribution": f"Current · {current.total_shots:,} shots",
+                        "count": row["current_count"],
+                        "frequency": row["current_frequency"],
+                    },
+                    {
+                        "outcome": row["outcome"],
+                        "distribution": f"Look-back · {comparison.total_shots:,} shots",
+                        "count": row["lookback_count"],
+                        "frequency": row["lookback_frequency"],
+                    },
+                ]
+            )
+    chart_frame = pd.DataFrame(chart_rows)
+    value_field = "frequency" if metric == "Frequencies" else "count"
+    value_title = "Cumulative frequency" if metric == "Frequencies" else "Cumulative count"
+    value_axis = (
+        alt.Axis(format=".1%")
+        if metric == "Frequencies"
+        else alt.Axis(format=",d")
+    )
+    value_tooltip = (
+        alt.Tooltip("frequency:Q", title="Frequency", format=".3%")
+        if metric == "Frequencies"
+        else alt.Tooltip("count:Q", title="Count", format=",d")
+    )
+    distribution_chart = (
+        alt.Chart(chart_frame)
+        .mark_bar()
+        .encode(
+            y=alt.Y(
+                "outcome:N",
+                sort=selected_outcomes,
+                title="Outcome",
+                axis=alt.Axis(labelLimit=220),
+            ),
+            x=alt.X(f"{value_field}:Q", title=value_title, axis=value_axis),
+            color=alt.Color("distribution:N", title=None),
+            yOffset="distribution:N",
+            tooltip=[
+                alt.Tooltip("outcome:N", title="Outcome"),
+                alt.Tooltip("distribution:N", title="Distribution"),
+                value_tooltip,
+            ],
+        )
+        .properties(
+            height=max(280, min(1400, 24 * len(selected_outcomes))),
+        )
+    )
+    st.altair_chart(distribution_chart, use_container_width=True)
+
+    comparison_support = set(comparison.counts) if comparison is not None else set()
+    visible_support = set(current.counts) | comparison_support
+    st.caption(
+        f"Showing {len(selected_outcomes):,} of {len(visible_support):,} observed outcomes. "
+        "Filtering affects only the visualization; the controller always uses the complete distributions."
+    )
+
+    if comparison is None:
+        display_table = table.rename(
+            columns={
+                "current_count": "Cumulative count",
+                "current_frequency": "Frequency",
+            }
+        )
+        st.dataframe(
+            display_table.style.format(
+                {
+                    "Cumulative count": "{:,.0f}",
+                    "Frequency": "{:.3%}",
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        display_table = table.rename(
+            columns={
+                "current_count": "Current count",
+                "current_frequency": "Current frequency",
+                "lookback_count": "Look-back count",
+                "lookback_frequency": "Look-back frequency",
+                "frequency_change": "Frequency change",
+            }
+        )
+        st.dataframe(
+            display_table.style.format(
+                {
+                    "Current count": "{:,.0f}",
+                    "Current frequency": "{:.3%}",
+                    "Look-back count": "{:,.0f}",
+                    "Look-back frequency": "{:.3%}",
+                    "Frequency change": "{:+.3%}",
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+        if selected_check is not None:
+            st.caption(
+                f"This comparison is the TVD decision input for round {current.round_index}: "
+                f"current round {current.round_index} versus look-back round "
+                f"{selected_check['lookback_round_index']}; "
+                f"TVD={float(selected_check['delta']):.6g}, "
+                f"epsilon={float(selected_check['epsilon']):.6g}."
+            )
 
 
 def _audit_event_rows(events) -> pd.DataFrame:
@@ -382,6 +631,8 @@ def _render_execute(execution, scenario) -> None:
         )
     else:
         st.info("This run stopped before a stability check became eligible.")
+
+    _render_cumulative_distribution(execution)
 
     with st.expander("Online decision boundary"):
         st.write(
