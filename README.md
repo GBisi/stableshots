@@ -193,15 +193,3 @@ uv run python src/stableshot/main.py \
 StableShots targets static circuits. The paper reports TVD against finite 20,000-shot noisy-backend empirical references, not against unknown true backend-induced distributions. The experiments use noisy simulated QSimBench backends; live QPU behavior, queueing overhead, and backend drift require separate evaluation.
 
 The bundled conference scenarios are deterministic synthetic replays. QSimBench mode gives the attendee access to the real benchmark trace catalog but introduces the expected network/cache dependency during materialization.
-
-## Citation
-
-```bibtex
-@inproceedings{Bisicchia2026Stableshots,
-  author       = {Bisicchia, G. and Bocci, A. and Pimentel, E. and Brogi, A.},
-  title        = {{StableShots: Adaptive Shot Control for Quantum Circuits}},
-  booktitle    = {IEEE International Conference on Quantum Computing and Engineering (QCE 2026)},
-  year         = {2026},
-  note         = {In Press}
-}
-```
