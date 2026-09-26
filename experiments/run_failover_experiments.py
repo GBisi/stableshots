@@ -21,6 +21,8 @@ import argparse
 import hashlib
 import json
 import math
+import os
+import subprocess
 import random
 import time
 from collections import Counter
@@ -68,6 +70,89 @@ def load_config(path: Path) -> Dict[str, object]:
     if missing:
         raise ValueError(f"missing configuration keys: {missing}")
     return cfg
+
+
+def auto_publish_results(
+    cfg: Mapping[str, object],
+    paths: Sequence[Path],
+    stage: str,
+) -> None:
+    """Commit and push only generated result paths after a successful stage."""
+    publish = cfg.get("git_publish", {})
+    if not isinstance(publish, Mapping) or not bool(publish.get("enabled", False)):
+        return
+
+    disabled = os.getenv("STABLESHOTS_DISABLE_AUTO_PUSH", "").strip().lower()
+    if disabled in {"1", "true", "yes", "on"}:
+        print("automatic result push disabled by STABLESHOTS_DISABLE_AUTO_PUSH", flush=True)
+        return
+
+    expected_branch = str(publish.get("branch", "")).strip()
+    remote = str(publish.get("remote", "origin")).strip() or "origin"
+    if not expected_branch:
+        raise ValueError("git_publish.branch must be set when automatic publishing is enabled")
+
+    try:
+        root_text = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError("automatic result push requires execution inside a Git repository") from exc
+
+    repo_root = Path(root_text).resolve()
+    current_branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if current_branch != expected_branch:
+        raise RuntimeError(
+            f"refusing to auto-push results from branch {current_branch!r}; "
+            f"configured branch is {expected_branch!r}"
+        )
+
+    relative_paths: List[str] = []
+    for path in paths:
+        resolved = path.resolve()
+        try:
+            relative_paths.append(str(resolved.relative_to(repo_root)))
+        except ValueError as exc:
+            raise RuntimeError(f"result path {resolved} is outside repository {repo_root}") from exc
+
+    subprocess.run(["git", "add", "--", *relative_paths], cwd=repo_root, check=True)
+    diff = subprocess.run(
+        ["git", "diff", "--cached", "--quiet", "--", *relative_paths],
+        cwd=repo_root,
+        check=False,
+    )
+    if diff.returncode == 0:
+        print(f"no new {stage} result changes to publish", flush=True)
+        return
+    if diff.returncode != 1:
+        raise RuntimeError(f"git diff failed while preparing automatic {stage} result publication")
+
+    message_key = f"{stage}_commit_message"
+    default_message = f"Add failover {stage} results"
+    message = str(publish.get(message_key, default_message)).strip() or default_message
+    subprocess.run(
+        ["git", "commit", "-m", message, "--", *relative_paths],
+        cwd=repo_root,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "push", remote, f"HEAD:refs/heads/{expected_branch}"],
+        cwd=repo_root,
+        check=True,
+    )
+    print(
+        f"published {stage} results to {remote}/{expected_branch}",
+        flush=True,
+    )
 
 
 def deterministic_seed(base: int, *parts: object) -> int:
@@ -1113,6 +1198,7 @@ def main() -> None:
     manifest["finished_unix"] = time.time()
     marker.write_text(json.dumps(manifest, indent=2))
     print(f"results written under {output_dir}", flush=True)
+    auto_publish_results(cfg, [marker, raw_dir], "experiment")
 
 
 if __name__ == "__main__":

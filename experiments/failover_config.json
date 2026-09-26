@@ -2,9 +2,29 @@
   "experiment_name": "qpu_failover_stableshots",
   "output_dir": "results/qpu_failover",
   "circuit_kind": "circuit",
-  "algorithms": ["dj", "qaoa", "qft", "qnn", "random", "vqe"],
-  "sizes": [4, 6, 8, 10, 12, 14],
-  "backends": ["fake_fez", "fake_kyiv", "fake_marrakesh", "fake_sherbrooke", "fake_torino"],
+  "algorithms": [
+    "dj",
+    "qaoa",
+    "qft",
+    "qnn",
+    "random",
+    "vqe"
+  ],
+  "sizes": [
+    4,
+    6,
+    8,
+    10,
+    12,
+    14
+  ],
+  "backends": [
+    "fake_fez",
+    "fake_kyiv",
+    "fake_marrakesh",
+    "fake_sherbrooke",
+    "fake_torino"
+  ],
   "ideal_backend": "aer_simulator",
   "ideal_reference_shots": 200000,
   "backend_reference_shots": 20000,
@@ -20,17 +40,32 @@
     "epsilon": 0.005,
     "max_shots": 20000
   },
-  "fixed_shot_budgets": [1000, 5000, 10000, 20000],
+  "fixed_shot_budgets": [
+    1000,
+    5000,
+    10000,
+    20000
+  ],
   "target_tvd": 0.05,
   "single_failure": {
     "enabled": true,
-    "failure_fractions": [0.10, 0.25, 0.50, 0.75, 0.90],
+    "failure_fractions": [
+      0.1,
+      0.25,
+      0.5,
+      0.75,
+      0.9
+    ],
     "recovery_max_new_shots": 20000,
-    "fixed_decay_lambdas": [0.25, 0.50, 0.75],
+    "fixed_decay_lambdas": [
+      0.25,
+      0.5,
+      0.75
+    ],
     "shift_aware": {
       "probe_batches": 5,
       "bootstrap_repetitions": 200,
-      "minimum_null_tvd": 1e-6
+      "minimum_null_tvd": 0.000001
     }
   },
   "replacement_conditions": {
@@ -39,24 +74,63 @@
   },
   "multi_failure": {
     "enabled": true,
-    "failure_fractions_of_original_stop": [0.25, 0.50],
-    "sequence_conditions": ["ascending_reliability", "descending_reliability", "random"],
+    "failure_fractions_of_original_stop": [
+      0.25,
+      0.5
+    ],
+    "sequence_conditions": [
+      "ascending_reliability",
+      "descending_reliability",
+      "random"
+    ],
     "random_repetitions": 20,
     "random_seed": 2718,
-    "policies": ["full_restart", "naive_continuation", "controller_reset", "fixed_decay_0.5", "shift_aware_decay"]
+    "policies": [
+      "full_restart",
+      "naive_continuation",
+      "controller_reset",
+      "fixed_decay_0.5",
+      "shift_aware_decay"
+    ]
   },
   "stochastic_failure": {
     "enabled": true,
-    "per_batch_probabilities": [0.0025, 0.005, 0.01],
+    "per_batch_probabilities": [
+      0.0025,
+      0.005,
+      0.01
+    ],
     "repetitions": 20,
     "max_failures": 2,
     "random_seed": 314159,
-    "sequence_conditions": ["ascending_reliability", "descending_reliability", "random"],
-    "policies": ["full_restart", "controller_reset", "fixed_decay_0.5", "shift_aware_decay"]
+    "sequence_conditions": [
+      "ascending_reliability",
+      "descending_reliability",
+      "random"
+    ],
+    "policies": [
+      "full_restart",
+      "controller_reset",
+      "fixed_decay_0.5",
+      "shift_aware_decay"
+    ]
   },
   "analysis": {
     "bootstrap_repetitions": 2000,
     "bootstrap_seed": 12345,
-    "primary_policies_for_pair_heatmaps": ["naive_continuation", "controller_reset", "epoch_local", "fixed_decay_0.5", "shift_aware_decay"]
+    "primary_policies_for_pair_heatmaps": [
+      "naive_continuation",
+      "controller_reset",
+      "epoch_local",
+      "fixed_decay_0.5",
+      "shift_aware_decay"
+    ]
+  },
+  "git_publish": {
+    "enabled": true,
+    "branch": "research/qpu-failover-stableshots",
+    "remote": "origin",
+    "experiment_commit_message": "Add failover experiment results",
+    "analysis_commit_message": "Add failover analysis results"
   }
 }

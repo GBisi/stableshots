@@ -586,3 +586,28 @@ results/qpu_failover/
 ~~~
 
 See **experiments/FAILOVER_RESULTS_GUIDE.md** for the exact meaning and intended use of each output.
+
+
+## Automatic result publication
+
+The experiment configuration contains a **git_publish** block. With the default research configuration, automatic publication is enabled only for branch **research/qpu-failover-stableshots**.
+
+After a successful experiment run, the experiment launcher stages, commits, and pushes only:
+
+- the generated run manifest;
+- the configured raw-results directory.
+
+After a successful analysis run, the analysis script separately stages, commits, and pushes only:
+
+- the generated analysis CSV directory;
+- the generated plots directory.
+
+The scripts refuse to publish if the currently checked-out Git branch does not exactly match the configured branch. Unrelated repository files are not staged or committed.
+
+Automatic publication can be disabled without editing the configuration by setting:
+
+~~~bash
+STABLESHOTS_DISABLE_AUTO_PUSH=1
+~~~
+
+The GitHub Actions smoke test sets this variable and also disables publication in its temporary smoke configuration, so CI artifacts are uploaded to the workflow rather than committed to the research branch.

@@ -37,6 +37,7 @@ jobs:
       PYTHONUNBUFFERED: "1"
       QSIMBENCH_CACHE_DIR: ${{ github.workspace }}/.cache/qsimbench
       GITHUB_TOKEN: ${{ github.token }}
+      STABLESHOTS_DISABLE_AUTO_PUSH: "1"
 
     steps:
       - name: Check out repository
@@ -77,6 +78,7 @@ jobs:
           cfg = json.loads(src.read_text())
 
           cfg["experiment_name"] = "qpu_failover_ci_smoke"
+          cfg["git_publish"]["enabled"] = False
           cfg["output_dir"] = "results/qpu_failover_ci_smoke"
           cfg["algorithms"] = ["dj"]
           cfg["sizes"] = [4]
