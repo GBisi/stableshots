@@ -1,0 +1,245 @@
+name: QPU failover smoke experiments
+
+on:
+  push:
+    branches:
+      - research/qpu-failover-stableshots
+    paths:
+      - ".github/workflows/qpu-failover-smoke.yml"
+      - "experiments/**"
+      - "src/stableshot/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  pull_request:
+    branches:
+      - research/qpu-failover-stableshots
+    paths:
+      - ".github/workflows/qpu-failover-smoke.yml"
+      - "experiments/**"
+      - "src/stableshot/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qpu-failover-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Real QSimBench failover smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONUNBUFFERED: "1"
+      QSIMBENCH_CACHE_DIR: ${{ github.workspace }}/.cache/qsimbench
+      GITHUB_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Restore QSimBench trace cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/qsimbench
+          key: qsimbench-smoke-dj4-v1
+          restore-keys: |
+            qsimbench-smoke-
+
+      - name: Install project
+        run: uv sync --frozen
+
+      - name: Run existing unit tests
+        run: PYTHONPATH=src uv run python -m unittest discover -s tests -v
+
+      - name: Build CI smoke configuration
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          src = Path("experiments/failover_config.json")
+          dst = Path("/tmp/failover_smoke_config.json")
+          cfg = json.loads(src.read_text())
+
+          cfg["experiment_name"] = "qpu_failover_ci_smoke"
+          cfg["output_dir"] = "results/qpu_failover_ci_smoke"
+          cfg["algorithms"] = ["dj"]
+          cfg["sizes"] = [4]
+          cfg["backends"] = ["fake_fez", "fake_kyiv", "fake_torino"]
+          cfg["ideal_backend"] = "aer_simulator"
+          cfg["ideal_reference_shots"] = 5000
+          cfg["backend_reference_shots"] = 5000
+          cfg["fixed_shot_budgets"] = [500, 1000, 2000]
+
+          cfg["stableshots"]["max_shots"] = 2000
+
+          single = cfg["single_failure"]
+          single["enabled"] = True
+          single["failure_fractions"] = [0.25, 0.75]
+          single["recovery_max_new_shots"] = 2000
+          single["fixed_decay_lambdas"] = [0.5]
+          single["shift_aware"]["probe_batches"] = 2
+          single["shift_aware"]["bootstrap_repetitions"] = 20
+
+          cfg["replacement_conditions"]["random_repetitions"] = 2
+
+          multi = cfg["multi_failure"]
+          multi["enabled"] = True
+          multi["failure_fractions_of_original_stop"] = [0.33, 0.66]
+          multi["sequence_conditions"] = [
+              "ascending_reliability",
+              "descending_reliability",
+              "random",
+          ]
+          multi["random_repetitions"] = 2
+          multi["policies"] = [
+              "full_restart",
+              "controller_reset",
+              "fixed_decay_0.5",
+              "shift_aware_decay",
+          ]
+
+          stochastic = cfg["stochastic_failure"]
+          stochastic["enabled"] = True
+          stochastic["per_batch_probabilities"] = [0.05]
+          stochastic["repetitions"] = 2
+          stochastic["max_failures"] = 2
+          stochastic["sequence_conditions"] = [
+              "ascending_reliability",
+              "descending_reliability",
+              "random",
+          ]
+          stochastic["policies"] = [
+              "full_restart",
+              "controller_reset",
+              "fixed_decay_0.5",
+              "shift_aware_decay",
+          ]
+
+          cfg["analysis"]["bootstrap_repetitions"] = 100
+          cfg["analysis"]["primary_policies_for_pair_heatmaps"] = [
+              "naive_continuation",
+              "controller_reset",
+              "fixed_decay_0.5",
+              "shift_aware_decay",
+          ]
+
+          dst.write_text(json.dumps(cfg, indent=2) + "\n")
+          print(dst.read_text())
+          PY
+
+      - name: Run real failover smoke experiments
+        run: |
+          uv run python experiments/run_failover_experiments.py \
+            --config /tmp/failover_smoke_config.json
+
+      - name: Analyze smoke results
+        run: |
+          uv run python experiments/analyze_failover_results.py \
+            --config /tmp/failover_smoke_config.json
+
+      - name: Validate generated results
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+          import pandas as pd
+
+          root = Path("results/qpu_failover_ci_smoke")
+
+          required_files = [
+              root / "run_manifest.json",
+              root / "raw/qpu_references.csv",
+              root / "raw/no_failure_runs.csv",
+              root / "raw/fixed_shot_runs.csv",
+              root / "raw/single_failure_runs.csv",
+              root / "raw/multi_failure_runs.csv",
+              root / "raw/stochastic_failure_runs.csv",
+              root / "analysis/no_failure_summary.csv",
+              root / "analysis/fixed_shot_summary.csv",
+              root / "analysis/single_failure_summary.csv",
+              root / "analysis/handoff_pair_summary.csv",
+              root / "analysis/handoff_predictor_correlations.csv",
+              root / "analysis/decay_sensitivity.csv",
+              root / "analysis/oracle_replacement_runs.csv",
+              root / "analysis/oracle_replacement_summary.csv",
+              root / "analysis/multi_failure_summary.csv",
+              root / "analysis/stochastic_failure_summary.csv",
+              root / "plots/failure_fraction_accuracy.png",
+              root / "plots/failure_fraction_shot_overhead.png",
+              root / "plots/oracle_replacement_accuracy.png",
+              root / "plots/shift_aware_lambda_response.png",
+          ]
+
+          missing = [str(path) for path in required_files if not path.exists()]
+          if missing:
+              raise SystemExit("Missing expected outputs:\n" + "\n".join(missing))
+
+          empty = [str(path) for path in required_files if path.stat().st_size == 0]
+          if empty:
+              raise SystemExit("Empty expected outputs:\n" + "\n".join(empty))
+
+          csvs = [path for path in required_files if path.suffix == ".csv"]
+          empty_csvs = [str(path) for path in csvs if pd.read_csv(path).empty]
+          if empty_csvs:
+              raise SystemExit("CSV files contain no rows:\n" + "\n".join(empty_csvs))
+
+          single = pd.read_csv(root / "raw/single_failure_runs.csv")
+          expected_policies = {
+              "full_restart",
+              "naive_continuation",
+              "controller_reset",
+              "epoch_local",
+              "fixed_decay_0.5",
+              "shift_aware_decay",
+          }
+          observed_policies = set(single["policy"])
+          missing_policies = sorted(expected_policies - observed_policies)
+          if missing_policies:
+              raise SystemExit(f"Single-failure smoke run missed policies: {missing_policies}")
+
+          observed_pairs = set(zip(single["source_backend"], single["target_backend"]))
+          if len(observed_pairs) != 6:
+              raise SystemExit(
+                  f"Expected all 6 directed handoffs for 3 QPUs, observed {len(observed_pairs)}"
+              )
+
+          fractions = set(single["failure_fraction"].round(2))
+          if fractions != {0.25, 0.75}:
+              raise SystemExit(f"Unexpected failure fractions: {sorted(fractions)}")
+
+          shift = single[single["policy"] == "shift_aware_decay"]
+          if shift["adaptive_lambda"].isna().any():
+              raise SystemExit("Shift-aware smoke rows contain missing adaptive lambda values")
+          if not shift["adaptive_lambda"].between(0.0, 1.0).all():
+              raise SystemExit("Shift-aware adaptive lambda escaped [0, 1]")
+
+          print(f"Validated {len(single)} single-failure rows")
+          print(f"Validated {len(observed_pairs)} directed handoffs")
+          print("All expected raw, analysis, and plot outputs are present and non-empty.")
+          PY
+
+      - name: Upload smoke-test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qpu-failover-smoke-${{ github.run_id }}
+          path: |
+            results/qpu_failover_ci_smoke/
+            /tmp/failover_smoke_config.json
+          if-no-files-found: warn
+          retention-days: 14
