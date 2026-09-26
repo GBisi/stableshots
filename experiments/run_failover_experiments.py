@@ -430,6 +430,10 @@ def simulate_single_handoff(
         target_batch_count += actual_probe_batches
         remaining_budget = max(0, max_new_shots - probe_shots)
         if not controller.stopped and remaining_budget > 0:
+            # The probe is already accounted for in target_shots. Reset only the
+            # recovery-budget counter so run_controller may consume exactly the
+            # remaining post-probe budget while retaining reconstructed snapshots.
+            controller.processed_new_shots = 0
             consumed, used = run_controller(
                 controller,
                 target_batches,
@@ -722,6 +726,8 @@ def simulate_deterministic_sequence(
     source_stream = streams[start]
 
     while backend_index < len(sequence):
+        if controller.stopped:
+            break
         backend = sequence[backend_index]
         batches = streams[backend]
         if batch_index >= len(batches):
@@ -825,6 +831,8 @@ def simulate_stochastic_sequence(
     handoff_shifts: List[float] = []
 
     while physical_total < max_total_shots and backend_index < len(sequence):
+        if controller.stopped:
+            break
         backend = sequence[backend_index]
         batches = streams[backend]
         if batch_index >= len(batches):
@@ -1093,7 +1101,6 @@ def main() -> None:
                                         condition,
                                         p_failure,
                                         rep,
-                                        policy,
                                     ),
                                     target_tvd=target_tvd,
                                 )
