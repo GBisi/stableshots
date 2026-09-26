@@ -167,7 +167,15 @@ def pair_predictor_correlations(single: pd.DataFrame) -> pd.DataFrame:
             for predictor in predictors:
                 for outcome in outcomes:
                     pair = gf[[predictor, outcome]].dropna()
-                    rho = float(pair[predictor].corr(pair[outcome], method="spearman")) if len(pair) >= 3 else float("nan")
+                    if len(pair) >= 3:
+                        # Spearman rho is Pearson correlation on ranks. Computing
+                        # it explicitly keeps the analysis self-contained and
+                        # avoids pandas' optional SciPy dependency.
+                        x_rank = pair[predictor].rank(method="average")
+                        y_rank = pair[outcome].rank(method="average")
+                        rho = float(x_rank.corr(y_rank, method="pearson"))
+                    else:
+                        rho = float("nan")
                     rows.append({
                         "policy": policy,
                         "failure_fraction": float(failure_fraction),
