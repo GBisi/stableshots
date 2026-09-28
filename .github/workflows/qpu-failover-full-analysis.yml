@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: qpu-failover-full-analysis
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   analyze:
