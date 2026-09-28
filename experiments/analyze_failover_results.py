@@ -125,8 +125,17 @@ def bootstrap_median_ci(values: Sequence[float], reps: int, seed: int, alpha: fl
         return float("nan"), float("nan")
     rng = np.random.default_rng(seed)
     medians = np.empty(reps, dtype=float)
-    for i in range(reps):
-        medians[i] = np.median(rng.choice(arr, size=arr.size, replace=True))
+    # Vectorize bootstrap draws in bounded chunks. This preserves the same
+    # bootstrap estimator while avoiding millions of Python-level sampling loops
+    # for the pairwise and oracle summaries.
+    max_draws_per_chunk = 2_000_000
+    chunk_reps = max(1, min(reps, max_draws_per_chunk // max(1, arr.size)))
+    offset = 0
+    while offset < reps:
+        current = min(chunk_reps, reps - offset)
+        samples = rng.choice(arr, size=(current, arr.size), replace=True)
+        medians[offset:offset + current] = np.median(samples, axis=1)
+        offset += current
     return float(np.quantile(medians, alpha / 2)), float(np.quantile(medians, 1 - alpha / 2))
 
 
