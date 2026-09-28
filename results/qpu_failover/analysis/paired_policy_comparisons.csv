@@ -1,0 +1,8 @@
+policy_a,policy_b,paired_runs,median_tvd_difference_a_minus_b,mean_tvd_difference_a_minus_b,median_shot_difference_a_minus_b,identical_tvd_and_shots,a_lower_tvd_runs,a_higher_tvd_runs
+controller_reset,naive_continuation,3600,0.0,-4.3433781414926596e-05,0.0,3496,68,36
+epoch_local,full_restart,3600,-0.005245709118598899,-0.00457433559671649,0.0,1,2238,1361
+fixed_decay_0.25,full_restart,3600,-0.0017665544057283503,-0.00218158544837006,-100.0,1,2251,1348
+fixed_decay_0.5,full_restart,3600,-0.003157976034501603,-0.0031515222766579825,-650.0,1,2212,1385
+fixed_decay_0.75,full_restart,3600,-0.004062916713029961,-0.0032893081451581185,-1250.0,0,2188,1412
+shift_aware_decay,controller_reset,3600,0.0,0.0015558638176667715,50.0,378,1489,1733
+shift_aware_decay,fixed_decay_0.5,3600,0.00017056473165759888,0.0020442697878097697,-600.0,0,1742,1857
