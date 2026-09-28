@@ -147,6 +147,7 @@ def bootstrap_median_ci_clustered(
     seed: int,
     alpha: float = 0.05,
 ) -> Tuple[float, float]:
+    """Cluster bootstrap CI for a pooled median, vectorized in bounded chunks."""
     work = group[[cluster_col, metric]].copy()
     work[metric] = pd.to_numeric(work[metric], errors="coerce")
     work = work[np.isfinite(work[metric].to_numpy(dtype=float))]
@@ -154,22 +155,46 @@ def bootstrap_median_ci_clustered(
     if work.empty:
         return float("nan"), float("nan")
 
-    clusters = list(work[cluster_col].drop_duplicates())
-    if len(clusters) < 2:
+    codes, clusters = pd.factorize(work[cluster_col], sort=False)
+    cluster_count = len(clusters)
+    if cluster_count < 2:
         return bootstrap_median_ci(work[metric].to_numpy(), reps, seed, alpha)
 
-    values_by_cluster = {
-        cluster: work.loc[work[cluster_col] == cluster, metric].to_numpy(dtype=float)
-        for cluster in clusters
-    }
+    values = work[metric].to_numpy(dtype=float)
+    order = np.argsort(values, kind="mergesort")
+    sorted_values = values[order]
+    sorted_codes = codes[order]
+
     rng = np.random.default_rng(seed)
     medians = np.empty(reps, dtype=float)
-    for rep in range(reps):
-        sampled_indices = rng.integers(0, len(clusters), size=len(clusters))
-        sampled_values = np.concatenate(
-            [values_by_cluster[clusters[index]] for index in sampled_indices]
+    # Keep the replicate-by-observation weight matrix bounded.  Cluster draws
+    # are converted to multiplicities, so no Python-level resampling loop is
+    # needed even when a group contains thousands of repeated observations.
+    max_weight_cells = 2_000_000
+    chunk_reps = max(1, min(reps, max_weight_cells // max(1, len(work))))
+    offset = 0
+    while offset < reps:
+        current = min(chunk_reps, reps - offset)
+        draws = rng.integers(0, cluster_count, size=(current, cluster_count))
+        multiplicities = np.zeros((current, cluster_count), dtype=np.int16)
+        np.add.at(
+            multiplicities,
+            (np.repeat(np.arange(current), cluster_count), draws.ravel()),
+            1,
         )
-        medians[rep] = np.median(sampled_values)
+
+        row_weights = multiplicities[:, sorted_codes]
+        cumulative = np.cumsum(row_weights, axis=1, dtype=np.int32)
+        totals = cumulative[:, -1]
+        lower_pos = (totals - 1) // 2
+        upper_pos = totals // 2
+        lower_idx = np.argmax(cumulative > lower_pos[:, None], axis=1)
+        upper_idx = np.argmax(cumulative > upper_pos[:, None], axis=1)
+        medians[offset:offset + current] = (
+            sorted_values[lower_idx] + sorted_values[upper_idx]
+        ) / 2.0
+        offset += current
+
     return float(np.quantile(medians, alpha / 2)), float(np.quantile(medians, 1 - alpha / 2))
 
 
