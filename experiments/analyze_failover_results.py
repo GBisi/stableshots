@@ -850,7 +850,36 @@ def main() -> None:
             int(replacement_cfg["random_repetitions"]),
             int(replacement_cfg["random_seed"]),
         )
-        oracle.to_csv(analysis_dir / "oracle_replacement_runs.csv", index=False)
+        # The expanded random-oracle table replicates matched single-handoff
+        # rows many times.  Persist only the columns needed to reproduce the
+        # oracle comparisons so the derived CSV stays below GitHub's per-file
+        # size limit.
+        oracle_run_columns = [
+            "circuit_key",
+            "algorithm",
+            "size",
+            "source_backend",
+            "target_backend",
+            "replacement_condition",
+            "replacement_repetition",
+            "selected_target_tvd_to_aer",
+            "policy",
+            "failure_fraction",
+            "handoff_direction",
+            "final_tvd_to_aer",
+            "delta_tvd_vs_no_failure",
+            "abs_delta_tvd",
+            "handoff_transfer_coeff",
+            "target_evidence_share",
+            "physical_shots_total",
+            "post_failure_shots",
+            "shot_overhead_vs_no_failure",
+            "target_violation",
+        ]
+        oracle.loc[:, [column for column in oracle_run_columns if column in oracle.columns]].to_csv(
+            analysis_dir / "oracle_replacement_runs.csv",
+            index=False,
+        )
         summary_table(
             oracle,
             ["replacement_condition", "policy", "failure_fraction"],
