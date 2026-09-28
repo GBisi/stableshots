@@ -55,7 +55,7 @@ The default configuration uses QSimBench circuit traces for:
 
 Each noisy backend receives a 20,000-shot high-shot reference. The ideal reference is sampled at 200,000 shots by default. Both values are configurable.
 
-QSimBench random sampling is seeded deterministically. The runner materializes a backend stream once for a circuit and reuses that stream across recovery policies so policy comparisons do not accidentally compare different random measurement streams.
+QSimBench random sampling is seeded deterministically. Execution streams use `sampling_seed`; noisy-backend quality references use the distinct `backend_reference_seed`. The runner rejects configurations where those seeds are equal. This keeps the sample used to classify backend quality separate from the sample used to execute handoff policies. Execution streams are still reused across recovery policies so paired policy comparisons see the same measurement history.
 
 ## StableShots configuration
 
@@ -402,6 +402,8 @@ The configured sequence conditions are:
 - descending_reliability: best-to-worst oracle order;
 - random: random backend permutation.
 
+These are three distinct robustness scenarios. Analysis and paper discussion must keep them separate: aggregate across circuits and repetitions within one scenario, but never pool observations across ascending, descending, and random sequences into a common robustness statistic or curve.
+
 The default planned failures occur at 25% and 50% of the initial backend's no-failure stopping count. A run may stop before a later scheduled failure; therefore the raw table records both planned_failures and actual_failures.
 
 The multi-failure experiment intentionally uses a smaller policy subset configured in JSON. The default includes:
@@ -613,52 +615,65 @@ STABLESHOTS_DISABLE_AUTO_PUSH=1
 The GitHub Actions smoke test sets this variable and also disables publication in its temporary smoke configuration, so CI artifacts are uploaded to the workflow rather than committed to the research branch.
 
 
-## Handoff magnitude and normalized transfer analysis
+## Handoff magnitude, evidence composition, and normalized response
 
-The primary single-failure analysis now avoids relying on the globally signed median Delta TVD, because directed handoffs can cancel when improving and degrading transitions are pooled.
+The primary single-failure analysis does not use the globally signed median Delta TVD as a headline statistic, because the exhaustive directed design intentionally contains both improving and degrading migrations and their signs can cancel.
 
 For every single-failure row the analysis adds:
 
-- **abs_delta_tvd** = absolute value of the TVD change relative to the matched no-failure source-QPU run;
-- **handoff_direction** = improving when target QPU reference TVD to Aer is lower than the source, degrading when it is higher;
+- **abs_delta_tvd** = absolute TVD change relative to the matched no-failure source-QPU run;
+- **handoff_direction** = improving when the target-QPU reference TVD to Aer is lower than the source, degrading when it is higher;
 - **restart_delta_tvd** = the matched full-restart TVD change for the same circuit, source, target, and failure location;
-- **handoff_transfer_coeff**:
+- **target_evidence_share**:
   [
-  H_p = rac{Delta TVD_p}{Delta TVD_{restart}}.
+  w_B = rac{N_{mathrm{post}}}{N_{mathrm{effective}}}.
+  ]
+  This is the fraction of the final effective measurement mass contributed by the replacement QPU;
+- **handoff_transfer_coeff**, retained as the CSV field name for compatibility but interpreted as the **restart-normalized handoff response**:
+  [
+  H_p = rac{Delta TVD_p}{Delta TVD_{mathrm{restart}}}.
   ]
 
-The coefficient is defined only when the full-restart effect is sufficiently far from zero. The default guard is:
+(H) is defined only when the matched full-restart effect is sufficiently far from zero. The default guard is
 
 [
-|Delta TVD_{restart}| ge 0.01.
+|Delta TVD_{mathrm{restart}}| ge 0.01.
 ]
 
-This prevents unstable ratios from handoffs for which the source and replacement have almost identical ideal error.
+Restart is the **zero-retained-history reference response**, not an accuracy optimum and not a mathematical upper bound. Because TVD is nonlinear under distribution mixtures, (H) should be read operationally:
 
-Interpretation:
+- (H=0): almost none of the restart-level TVD response is realized;
+- (H=1): the policy matches the restart-level TVD response;
+- (0<H<1): partial restart-normalized response;
+- (H<0) or (H>1): reversal or overshoot relative to restart and therefore a case to inspect, not a value to clip.
 
-- (H=0): the replacement has almost no realized effect relative to restart;
-- (H=1): the policy realizes the full restart-level handoff effect;
-- (0<H<1): historical evidence partially damps the replacement-QPU effect;
-- (H<0) or (H>1): the policy reverses or overshoots the restart-level effect and should be inspected individually.
+The analysis also records (H-w_B) and the Spearman association between (w_B) and (H). This tests the proposed mechanism directly: failure timing changes retained evidence composition, and retained evidence composition determines how strongly the replacement QPU can influence the cumulative estimator.
 
-The analysis also writes a cutoff-sensitivity table for 0.005, 0.01, and 0.02.
+The threshold sensitivity table remains at 0.005, 0.01, and 0.02.
 
-New derived files include:
+Bootstrap confidence intervals for aggregate summaries are clustered by **circuit_key** so the repeated source-target, policy, and failure-location observations from one circuit are not treated as independent experimental units. Paired policy comparisons use the same circuit-clustered bootstrap.
+
+New or extended derived files include:
 
 - **single_failure_enriched.csv**
 - **handoff_transfer_summary.csv**
 - **handoff_direction_summary.csv**
 - **handoff_transfer_threshold_sensitivity.csv**
 - **paired_policy_comparisons.csv**
+- **evidence_share_correlations.csv**
+- **multi_failure_by_actual_failures.csv**
+- **stochastic_failure_by_actual_failures.csv**
 
-New figures include:
+The main figures include:
 
 - **failure_fraction_abs_delta_tvd.png**
+- **failure_fraction_target_evidence_share.png**
 - **failure_fraction_handoff_transfer.png**
 - **failure_fraction_delta_tvd_improving.png**
 - **failure_fraction_delta_tvd_degrading.png**
 - **failure_fraction_handoff_transfer_improving.png**
 - **failure_fraction_handoff_transfer_degrading.png**
 
-For resilience conclusions, prefer the direction-stratified signed Delta TVD, absolute Delta TVD, and H together. The global signed Delta TVD can be close to zero because the experiment intentionally contains both directions of every QPU pair.
+Repeated- and stochastic-failure figures are generated separately for **ascending_reliability**, **descending_reliability**, and **random**. There is deliberately no pooled cross-scenario robustness curve.
+
+For resilience conclusions, use direction-stratified signed Delta TVD, absolute Delta TVD, target evidence share, restart-normalized response (H), and physical-shot cost together.

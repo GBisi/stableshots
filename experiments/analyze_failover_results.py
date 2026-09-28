@@ -139,12 +139,47 @@ def bootstrap_median_ci(values: Sequence[float], reps: int, seed: int, alpha: fl
     return float(np.quantile(medians, alpha / 2)), float(np.quantile(medians, 1 - alpha / 2))
 
 
+def bootstrap_median_ci_clustered(
+    group: pd.DataFrame,
+    metric: str,
+    cluster_col: str,
+    reps: int,
+    seed: int,
+    alpha: float = 0.05,
+) -> Tuple[float, float]:
+    work = group[[cluster_col, metric]].copy()
+    work[metric] = pd.to_numeric(work[metric], errors="coerce")
+    work = work[np.isfinite(work[metric].to_numpy(dtype=float))]
+    work = work.dropna(subset=[cluster_col])
+    if work.empty:
+        return float("nan"), float("nan")
+
+    clusters = list(work[cluster_col].drop_duplicates())
+    if len(clusters) < 2:
+        return bootstrap_median_ci(work[metric].to_numpy(), reps, seed, alpha)
+
+    values_by_cluster = {
+        cluster: work.loc[work[cluster_col] == cluster, metric].to_numpy(dtype=float)
+        for cluster in clusters
+    }
+    rng = np.random.default_rng(seed)
+    medians = np.empty(reps, dtype=float)
+    for rep in range(reps):
+        sampled_indices = rng.integers(0, len(clusters), size=len(clusters))
+        sampled_values = np.concatenate(
+            [values_by_cluster[clusters[index]] for index in sampled_indices]
+        )
+        medians[rep] = np.median(sampled_values)
+    return float(np.quantile(medians, alpha / 2)), float(np.quantile(medians, 1 - alpha / 2))
+
+
 def summary_table(
     df: pd.DataFrame,
     group_cols: Sequence[str],
     metrics: Sequence[str],
     bootstrap_reps: int,
     seed: int,
+    cluster_col: str | None = None,
 ) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame()
@@ -160,11 +195,21 @@ def summary_table(
             vals = pd.to_numeric(group[metric], errors="coerce").dropna()
             if vals.empty:
                 continue
-            low, high = bootstrap_median_ci(
-                vals.to_numpy(),
-                bootstrap_reps,
-                deterministic_seed(seed, *key, metric),
-            )
+            ci_seed = deterministic_seed(seed, *key, metric)
+            if cluster_col and cluster_col in group.columns:
+                low, high = bootstrap_median_ci_clustered(
+                    group,
+                    metric,
+                    cluster_col,
+                    bootstrap_reps,
+                    ci_seed,
+                )
+            else:
+                low, high = bootstrap_median_ci(
+                    vals.to_numpy(),
+                    bootstrap_reps,
+                    ci_seed,
+                )
             row[f"median_{metric}"] = float(vals.median())
             row[f"mean_{metric}"] = float(vals.mean())
             row[f"q25_{metric}"] = float(vals.quantile(0.25))
@@ -250,12 +295,27 @@ def enrich_single_failure(
         "handoff_transfer_coeff",
         "handoff_transfer_abs",
         "handoff_transfer_outside_unit_interval",
+        "target_evidence_share",
+        "retained_source_evidence_share",
+        "handoff_response_minus_target_evidence_share",
     ]
     frame = frame.drop(
         columns=[column for column in derived_columns if column in frame.columns],
         errors="ignore",
     )
     frame["abs_delta_tvd"] = frame["delta_tvd_vs_no_failure"].abs()
+    effective_mass = pd.to_numeric(frame["effective_retained_shots"], errors="coerce")
+    post_failure_mass = pd.to_numeric(frame["post_failure_shots"], errors="coerce")
+    frame["target_evidence_share"] = np.where(
+        effective_mass > 0,
+        post_failure_mass / effective_mass,
+        np.nan,
+    )
+    frame["retained_source_evidence_share"] = np.where(
+        np.isfinite(frame["target_evidence_share"]),
+        1.0 - frame["target_evidence_share"],
+        np.nan,
+    )
     frame["handoff_direction"] = np.where(
         frame["quality_change"] < 0,
         "improving",
@@ -288,6 +348,11 @@ def enrich_single_failure(
         (frame["handoff_transfer_coeff"] < 0) | (frame["handoff_transfer_coeff"] > 1),
         False,
     )
+    frame["handoff_response_minus_target_evidence_share"] = np.where(
+        frame["handoff_transfer_defined"],
+        frame["handoff_transfer_coeff"] - frame["target_evidence_share"],
+        np.nan,
+    )
     return frame
 
 
@@ -308,12 +373,15 @@ def handoff_transfer_summary(
             "abs_delta_tvd",
             "handoff_transfer_coeff",
             "handoff_transfer_abs",
+            "target_evidence_share",
+            "handoff_response_minus_target_evidence_share",
             "physical_shots_total",
             "post_failure_shots",
             "shot_overhead_vs_no_failure",
         ],
         reps,
         seed,
+        cluster_col="circuit_key",
     )
 
     extras: List[Dict[str, object]] = []
@@ -375,6 +443,8 @@ def paired_policy_comparison(
     single: pd.DataFrame,
     policy_a: str,
     policy_b: str,
+    reps: int,
+    seed: int,
 ) -> Dict[str, object]:
     key_cols = ["circuit_key", "source_backend", "target_backend", "failure_fraction"]
     cols = key_cols + ["final_tvd_to_aer", "physical_shots_total"]
@@ -387,8 +457,24 @@ def paired_policy_comparison(
         "physical_shots_total": "shots_b",
     })
     pair = left.merge(right, on=key_cols, how="inner", validate="one_to_one")
-    tvd_diff = pair["tvd_a"] - pair["tvd_b"]
-    shot_diff = pair["shots_a"] - pair["shots_b"]
+    pair["tvd_diff"] = pair["tvd_a"] - pair["tvd_b"]
+    pair["shot_diff"] = pair["shots_a"] - pair["shots_b"]
+    tvd_diff = pair["tvd_diff"]
+    shot_diff = pair["shot_diff"]
+    tvd_ci_low, tvd_ci_high = bootstrap_median_ci_clustered(
+        pair,
+        "tvd_diff",
+        "circuit_key",
+        reps,
+        deterministic_seed(seed, policy_a, policy_b, "paired_tvd"),
+    )
+    shot_ci_low, shot_ci_high = bootstrap_median_ci_clustered(
+        pair,
+        "shot_diff",
+        "circuit_key",
+        reps,
+        deterministic_seed(seed, policy_a, policy_b, "paired_shots"),
+    )
     tol = 1e-12
     return {
         "policy_a": policy_a,
@@ -396,7 +482,11 @@ def paired_policy_comparison(
         "paired_runs": int(len(pair)),
         "median_tvd_difference_a_minus_b": float(tvd_diff.median()),
         "mean_tvd_difference_a_minus_b": float(tvd_diff.mean()),
+        "median_tvd_difference_ci_low": tvd_ci_low,
+        "median_tvd_difference_ci_high": tvd_ci_high,
         "median_shot_difference_a_minus_b": float(shot_diff.median()),
+        "median_shot_difference_ci_low": shot_ci_low,
+        "median_shot_difference_ci_high": shot_ci_high,
         "identical_tvd_and_shots": int(
             ((tvd_diff.abs() <= tol) & (shot_diff.abs() <= tol)).sum()
         ),
@@ -411,6 +501,8 @@ def pair_summary(single: pd.DataFrame, reps: int, seed: int) -> pd.DataFrame:
         "delta_tvd_vs_no_failure",
         "abs_delta_tvd",
         "handoff_transfer_coeff",
+        "target_evidence_share",
+        "handoff_response_minus_target_evidence_share",
         "physical_shots_total",
         "post_failure_shots",
         "shot_overhead_vs_no_failure",
@@ -422,6 +514,7 @@ def pair_summary(single: pd.DataFrame, reps: int, seed: int) -> pd.DataFrame:
         metrics,
         reps,
         seed,
+        cluster_col="circuit_key",
     )
 
 
@@ -435,6 +528,8 @@ def pair_predictor_correlations(single: pd.DataFrame) -> pd.DataFrame:
         "delta_tvd_vs_no_failure",
         "abs_delta_tvd",
         "handoff_transfer_coeff",
+        "target_evidence_share",
+        "handoff_response_minus_target_evidence_share",
         "post_failure_shots",
         "shot_overhead_vs_no_failure",
     ]
@@ -476,12 +571,50 @@ def decay_sensitivity(single: pd.DataFrame, reps: int, seed: int) -> pd.DataFram
             "delta_tvd_vs_no_failure",
             "abs_delta_tvd",
             "handoff_transfer_coeff",
+            "target_evidence_share",
+            "handoff_response_minus_target_evidence_share",
             "physical_shots_total",
             "post_failure_shots",
         ],
         reps,
         seed,
+        cluster_col="circuit_key",
     )
+
+
+def evidence_share_correlations(single: pd.DataFrame) -> pd.DataFrame:
+    if single.empty:
+        return pd.DataFrame()
+    rows: List[Dict[str, object]] = []
+    defined = single[single["handoff_transfer_defined"]].copy()
+    for (policy, failure_fraction), group in defined.groupby(
+        ["policy", "failure_fraction"], sort=True
+    ):
+        pair = group[["target_evidence_share", "handoff_transfer_coeff"]].dropna()
+        if len(pair) >= 3:
+            x_rank = pair["target_evidence_share"].rank(method="average")
+            y_rank = pair["handoff_transfer_coeff"].rank(method="average")
+            rho = float(x_rank.corr(y_rank, method="pearson"))
+        else:
+            rho = float("nan")
+        rows.append({
+            "policy": policy,
+            "failure_fraction": float(failure_fraction),
+            "n": int(len(pair)),
+            "spearman_target_evidence_share_vs_h": rho,
+            "median_target_evidence_share": (
+                float(pair["target_evidence_share"].median()) if len(pair) else float("nan")
+            ),
+            "median_handoff_transfer_coeff": (
+                float(pair["handoff_transfer_coeff"].median()) if len(pair) else float("nan")
+            ),
+            "median_h_minus_target_evidence_share": (
+                float((pair["handoff_transfer_coeff"] - pair["target_evidence_share"]).median())
+                if len(pair)
+                else float("nan")
+            ),
+        })
+    return pd.DataFrame(rows)
 
 
 def save_line_plot(
@@ -609,6 +742,7 @@ def main() -> None:
             ["final_tvd_to_aer", "shots"],
             reps,
             seed,
+            cluster_col="circuit_key",
         ).to_csv(analysis_dir / "no_failure_summary.csv", index=False)
 
     if not fixed.empty:
@@ -618,6 +752,7 @@ def main() -> None:
             ["final_tvd_to_aer"],
             reps,
             seed,
+            cluster_col="circuit_key",
         ).to_csv(analysis_dir / "fixed_shot_summary.csv", index=False)
 
     if not single.empty:
@@ -632,6 +767,8 @@ def main() -> None:
                 "delta_tvd_vs_no_failure",
                 "abs_delta_tvd",
                 "handoff_transfer_coeff",
+                "target_evidence_share",
+                "handoff_response_minus_target_evidence_share",
                 "physical_shots_total",
                 "post_failure_shots",
                 "shot_overhead_vs_no_failure",
@@ -639,6 +776,7 @@ def main() -> None:
             ],
             reps,
             seed,
+            cluster_col="circuit_key",
         ).to_csv(analysis_dir / "single_failure_summary.csv", index=False)
 
         handoff_transfer_summary(
@@ -661,13 +799,13 @@ def main() -> None:
         ).to_csv(analysis_dir / "handoff_transfer_threshold_sensitivity.csv", index=False)
 
         paired = pd.DataFrame([
-            paired_policy_comparison(single, "controller_reset", "naive_continuation"),
-            paired_policy_comparison(single, "epoch_local", "full_restart"),
-            paired_policy_comparison(single, "fixed_decay_0.25", "full_restart"),
-            paired_policy_comparison(single, "fixed_decay_0.5", "full_restart"),
-            paired_policy_comparison(single, "fixed_decay_0.75", "full_restart"),
-            paired_policy_comparison(single, "shift_aware_decay", "controller_reset"),
-            paired_policy_comparison(single, "shift_aware_decay", "fixed_decay_0.5"),
+            paired_policy_comparison(single, "controller_reset", "naive_continuation", reps, seed),
+            paired_policy_comparison(single, "epoch_local", "full_restart", reps, seed),
+            paired_policy_comparison(single, "fixed_decay_0.25", "full_restart", reps, seed),
+            paired_policy_comparison(single, "fixed_decay_0.5", "full_restart", reps, seed),
+            paired_policy_comparison(single, "fixed_decay_0.75", "full_restart", reps, seed),
+            paired_policy_comparison(single, "shift_aware_decay", "controller_reset", reps, seed),
+            paired_policy_comparison(single, "shift_aware_decay", "fixed_decay_0.5", reps, seed),
         ])
         paired.to_csv(analysis_dir / "paired_policy_comparisons.csv", index=False)
 
@@ -676,6 +814,9 @@ def main() -> None:
             analysis_dir / "handoff_predictor_correlations.csv", index=False
         )
         decay_sensitivity(single, reps, seed).to_csv(analysis_dir / "decay_sensitivity.csv", index=False)
+        evidence_share_correlations(single).to_csv(
+            analysis_dir / "evidence_share_correlations.csv", index=False
+        )
 
         replacement_cfg = cfg["replacement_conditions"]
         oracle = derive_oracle_replacement_runs(
@@ -693,12 +834,15 @@ def main() -> None:
                 "delta_tvd_vs_no_failure",
                 "abs_delta_tvd",
                 "handoff_transfer_coeff",
+                "target_evidence_share",
+                "handoff_response_minus_target_evidence_share",
                 "physical_shots_total",
                 "post_failure_shots",
                 "shot_overhead_vs_no_failure",
             ],
             reps,
             seed,
+            cluster_col="circuit_key",
         ).to_csv(analysis_dir / "oracle_replacement_summary.csv", index=False)
 
         save_line_plot(
@@ -728,14 +872,23 @@ def main() -> None:
             "Single failure: handoff magnitude vs failure location",
             plots_dir / "failure_fraction_abs_delta_tvd.png",
         )
+        save_line_plot(
+            single,
+            "failure_fraction",
+            "target_evidence_share",
+            "policy",
+            "Median target evidence share",
+            "Evidence composition: replacement-QPU share vs failure location",
+            plots_dir / "failure_fraction_target_evidence_share.png",
+        )
         transfer_defined = single[single["handoff_transfer_defined"]].copy()
         save_line_plot(
             transfer_defined,
             "failure_fraction",
             "handoff_transfer_coeff",
             "policy",
-            "Median handoff transfer coefficient H",
-            "History inertia: realized handoff effect vs failure location",
+            "Median restart-normalized handoff response H",
+            "History inertia: restart-normalized response vs failure location",
             plots_dir / "failure_fraction_handoff_transfer.png",
         )
         for direction in ["improving", "degrading"]:
@@ -757,8 +910,8 @@ def main() -> None:
                 "failure_fraction",
                 "handoff_transfer_coeff",
                 "policy",
-                "Median handoff transfer coefficient H",
-                f"{direction.title()} handoffs: retained responsiveness",
+                "Median restart-normalized handoff response H",
+                f"{direction.title()} handoffs: restart-normalized response",
                 plots_dir / f"failure_fraction_handoff_transfer_{direction}.png",
             )
 
@@ -794,6 +947,8 @@ def main() -> None:
             fig.savefig(plots_dir / "shift_aware_lambda_response.png", dpi=180)
             plt.close(fig)
 
+    scenario_order = ["ascending_reliability", "descending_reliability", "random"]
+
     if not multi.empty:
         summary_table(
             multi,
@@ -801,34 +956,78 @@ def main() -> None:
             ["final_tvd_to_aer", "physical_shots_total", "discarded_or_downweighted_shots", "actual_failures"],
             reps,
             seed,
+            cluster_col="circuit_key",
         ).to_csv(analysis_dir / "multi_failure_summary.csv", index=False)
-        save_line_plot(
+        summary_table(
             multi,
-            "actual_failures",
-            "final_tvd_to_aer",
-            "policy",
-            "Median TVD to Aer",
-            "Multiple failures: accuracy by realized failure count",
-            plots_dir / "multi_failure_accuracy.png",
-        )
+            ["sequence_condition", "actual_failures", "policy"],
+            ["final_tvd_to_aer", "physical_shots_total", "discarded_or_downweighted_shots"],
+            reps,
+            seed,
+            cluster_col="circuit_key",
+        ).to_csv(analysis_dir / "multi_failure_by_actual_failures.csv", index=False)
+        (plots_dir / "multi_failure_accuracy.png").unlink(missing_ok=True)
+        for scenario in scenario_order:
+            scenario_frame = multi[multi["sequence_condition"] == scenario].copy()
+            scenario_label = scenario.replace("_", " ").title()
+            save_line_plot(
+                scenario_frame,
+                "actual_failures",
+                "final_tvd_to_aer",
+                "policy",
+                "Median TVD to Aer",
+                f"Multiple failures - {scenario_label}: accuracy by realized failure count",
+                plots_dir / f"multi_failure_accuracy_{scenario}.png",
+            )
+            save_line_plot(
+                scenario_frame,
+                "actual_failures",
+                "physical_shots_total",
+                "policy",
+                "Median physical shots",
+                f"Multiple failures - {scenario_label}: physical shots by realized failure count",
+                plots_dir / f"multi_failure_shots_{scenario}.png",
+            )
 
     if not stochastic.empty:
         summary_table(
             stochastic,
-            ["failure_probability_per_batch", "sequence_condition", "policy"],
+            ["sequence_condition", "failure_probability_per_batch", "policy"],
             ["final_tvd_to_aer", "physical_shots_total", "actual_failures"],
             reps,
             seed,
+            cluster_col="circuit_key",
         ).to_csv(analysis_dir / "stochastic_failure_summary.csv", index=False)
-        save_line_plot(
+        summary_table(
             stochastic,
-            "failure_probability_per_batch",
-            "final_tvd_to_aer",
-            "policy",
-            "Median TVD to Aer",
-            "Stochastic failures: accuracy vs per-batch failure probability",
-            plots_dir / "stochastic_failure_accuracy.png",
-        )
+            ["sequence_condition", "failure_probability_per_batch", "actual_failures", "policy"],
+            ["final_tvd_to_aer", "physical_shots_total"],
+            reps,
+            seed,
+            cluster_col="circuit_key",
+        ).to_csv(analysis_dir / "stochastic_failure_by_actual_failures.csv", index=False)
+        (plots_dir / "stochastic_failure_accuracy.png").unlink(missing_ok=True)
+        for scenario in scenario_order:
+            scenario_frame = stochastic[stochastic["sequence_condition"] == scenario].copy()
+            scenario_label = scenario.replace("_", " ").title()
+            save_line_plot(
+                scenario_frame,
+                "failure_probability_per_batch",
+                "final_tvd_to_aer",
+                "policy",
+                "Median TVD to Aer",
+                f"Stochastic failures - {scenario_label}: accuracy vs failure probability",
+                plots_dir / f"stochastic_failure_accuracy_{scenario}.png",
+            )
+            save_line_plot(
+                scenario_frame,
+                "failure_probability_per_batch",
+                "physical_shots_total",
+                "policy",
+                "Median physical shots",
+                f"Stochastic failures - {scenario_label}: physical shots vs failure probability",
+                plots_dir / f"stochastic_failure_shots_{scenario}.png",
+            )
 
     print(f"analysis written under {analysis_dir}")
     print(f"plots written under {plots_dir}")

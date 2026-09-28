@@ -62,6 +62,7 @@ def load_config(path: Path) -> Dict[str, object]:
         "sampling_strategy",
         "sampling_seed",
         "reference_seed",
+        "backend_reference_seed",
         "stableshots",
         "single_failure",
         "analysis",
@@ -615,10 +616,15 @@ def materialize_circuit(
         force,
     )
     required = max(
-        int(cfg["backend_reference_shots"]),
         stable_cfg.max_shots,
         int(cfg["single_failure"]["recovery_max_new_shots"]),  # type: ignore[index]
     )
+    reference_shots = int(cfg["backend_reference_shots"])
+    execution_seed = int(cfg["sampling_seed"])
+    backend_reference_seed = int(cfg["backend_reference_seed"])
+    if backend_reference_seed == execution_seed:
+        raise ValueError("backend_reference_seed must differ from sampling_seed")
+
     streams: Dict[str, List[Batch]] = {}
     references: Dict[str, Counts] = {}
     for backend in cfg["backends"]:  # type: ignore[assignment]
@@ -628,11 +634,19 @@ def materialize_circuit(
             total_shots=required,
             source_batch_size=int(cfg["source_batch_size"]),
             sampling_strategy=str(cfg["sampling_strategy"]),
-            sampling_seed=int(cfg["sampling_seed"]),
+            sampling_seed=execution_seed,
             force=force,
         )
+        reference_raw = load_qsimbench_batches(
+            spec=spec,
+            total_shots=reference_shots,
+            source_batch_size=int(cfg["source_batch_size"]),
+            sampling_strategy=str(cfg["sampling_strategy"]),
+            sampling_seed=backend_reference_seed,
+            force=False,
+        )
         streams[str(backend)] = execution_batches(raw, stable_cfg, required)
-        references[str(backend)] = prefix_counts(raw, int(cfg["backend_reference_shots"]))
+        references[str(backend)] = prefix_counts(reference_raw, reference_shots)
     return ideal, streams, references
 
 

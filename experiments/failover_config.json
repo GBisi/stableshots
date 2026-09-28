@@ -32,6 +32,7 @@
   "sampling_strategy": "random",
   "sampling_seed": 20260926,
   "reference_seed": 94021,
+  "backend_reference_seed": 20260927,
   "force_download": false,
   "stableshots": {
     "batch_size": 50,
