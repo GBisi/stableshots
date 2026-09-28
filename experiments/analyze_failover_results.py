@@ -232,6 +232,20 @@ def enrich_single_failure(
         return single.copy()
 
     frame = single.copy()
+    derived_columns = [
+        "abs_delta_tvd",
+        "handoff_direction",
+        "restart_delta_tvd",
+        "restart_abs_delta_tvd",
+        "handoff_transfer_defined",
+        "handoff_transfer_coeff",
+        "handoff_transfer_abs",
+        "handoff_transfer_outside_unit_interval",
+    ]
+    frame = frame.drop(
+        columns=[column for column in derived_columns if column in frame.columns],
+        errors="ignore",
+    )
     frame["abs_delta_tvd"] = frame["delta_tvd_vs_no_failure"].abs()
     frame["handoff_direction"] = np.where(
         frame["quality_change"] < 0,
