@@ -124,6 +124,12 @@
       "epoch_local",
       "fixed_decay_0.5",
       "shift_aware_decay"
+    ],
+    "transfer_min_abs_restart_delta": 0.01,
+    "transfer_threshold_sensitivity": [
+      0.005,
+      0.01,
+      0.02
     ]
   },
   "git_publish": {

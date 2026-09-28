@@ -223,10 +223,171 @@ def derive_oracle_replacement_runs(
     return pd.concat(rows, ignore_index=True)
 
 
+def enrich_single_failure(
+    single: pd.DataFrame,
+    min_abs_restart_delta: float,
+) -> pd.DataFrame:
+    """Add direction, magnitude, and restart-normalized handoff-response metrics."""
+    if single.empty:
+        return single.copy()
+
+    frame = single.copy()
+    frame["abs_delta_tvd"] = frame["delta_tvd_vs_no_failure"].abs()
+    frame["handoff_direction"] = np.where(
+        frame["quality_change"] < 0,
+        "improving",
+        np.where(frame["quality_change"] > 0, "degrading", "near_equal"),
+    )
+
+    key_cols = ["circuit_key", "source_backend", "target_backend", "failure_fraction"]
+    restart = (
+        frame.loc[frame["policy"] == "full_restart", key_cols + ["delta_tvd_vs_no_failure"]]
+        .rename(columns={"delta_tvd_vs_no_failure": "restart_delta_tvd"})
+        .drop_duplicates(subset=key_cols)
+    )
+    frame = frame.merge(restart, on=key_cols, how="left", validate="many_to_one")
+    frame["restart_abs_delta_tvd"] = frame["restart_delta_tvd"].abs()
+    frame["handoff_transfer_defined"] = (
+        frame["restart_abs_delta_tvd"] >= float(min_abs_restart_delta)
+    )
+    frame["handoff_transfer_coeff"] = np.where(
+        frame["handoff_transfer_defined"],
+        frame["delta_tvd_vs_no_failure"] / frame["restart_delta_tvd"],
+        np.nan,
+    )
+    frame["handoff_transfer_abs"] = np.where(
+        frame["handoff_transfer_defined"],
+        frame["abs_delta_tvd"] / frame["restart_abs_delta_tvd"],
+        np.nan,
+    )
+    frame["handoff_transfer_outside_unit_interval"] = np.where(
+        frame["handoff_transfer_defined"],
+        (frame["handoff_transfer_coeff"] < 0) | (frame["handoff_transfer_coeff"] > 1),
+        False,
+    )
+    return frame
+
+
+def handoff_transfer_summary(
+    single: pd.DataFrame,
+    group_cols: Sequence[str],
+    reps: int,
+    seed: int,
+) -> pd.DataFrame:
+    if single.empty:
+        return pd.DataFrame()
+
+    summary = summary_table(
+        single,
+        group_cols,
+        [
+            "delta_tvd_vs_no_failure",
+            "abs_delta_tvd",
+            "handoff_transfer_coeff",
+            "handoff_transfer_abs",
+            "physical_shots_total",
+            "post_failure_shots",
+            "shot_overhead_vs_no_failure",
+        ],
+        reps,
+        seed,
+    )
+
+    extras: List[Dict[str, object]] = []
+    for key, group in single.groupby(list(group_cols), dropna=False, sort=True):
+        if not isinstance(key, tuple):
+            key = (key,)
+        defined = group["handoff_transfer_defined"].astype(bool)
+        defined_group = group.loc[defined]
+        extras.append({
+            **dict(zip(group_cols, key)),
+            "transfer_defined_runs": int(defined.sum()),
+            "transfer_defined_rate": float(defined.mean()),
+            "transfer_outside_unit_interval_rate": (
+                float(defined_group["handoff_transfer_outside_unit_interval"].mean())
+                if len(defined_group)
+                else float("nan")
+            ),
+        })
+    return summary.merge(pd.DataFrame(extras), on=list(group_cols), how="left")
+
+
+def transfer_threshold_sensitivity(
+    single: pd.DataFrame,
+    thresholds: Sequence[float],
+) -> pd.DataFrame:
+    if single.empty:
+        return pd.DataFrame()
+
+    rows: List[Dict[str, object]] = []
+    for threshold in thresholds:
+        enriched = enrich_single_failure(single, float(threshold))
+        for (policy, failure_fraction), group in enriched.groupby(
+            ["policy", "failure_fraction"], sort=True
+        ):
+            defined = group[group["handoff_transfer_defined"]]
+            rows.append({
+                "min_abs_restart_delta": float(threshold),
+                "policy": policy,
+                "failure_fraction": float(failure_fraction),
+                "runs": int(len(group)),
+                "defined_runs": int(len(defined)),
+                "defined_rate": float(len(defined) / len(group)) if len(group) else float("nan"),
+                "median_handoff_transfer_coeff": (
+                    float(defined["handoff_transfer_coeff"].median())
+                    if len(defined)
+                    else float("nan")
+                ),
+                "mean_handoff_transfer_coeff": (
+                    float(defined["handoff_transfer_coeff"].mean())
+                    if len(defined)
+                    else float("nan")
+                ),
+                "median_abs_delta_tvd": float(group["abs_delta_tvd"].median()),
+            })
+    return pd.DataFrame(rows)
+
+
+def paired_policy_comparison(
+    single: pd.DataFrame,
+    policy_a: str,
+    policy_b: str,
+) -> Dict[str, object]:
+    key_cols = ["circuit_key", "source_backend", "target_backend", "failure_fraction"]
+    cols = key_cols + ["final_tvd_to_aer", "physical_shots_total"]
+    left = single.loc[single["policy"] == policy_a, cols].rename(columns={
+        "final_tvd_to_aer": "tvd_a",
+        "physical_shots_total": "shots_a",
+    })
+    right = single.loc[single["policy"] == policy_b, cols].rename(columns={
+        "final_tvd_to_aer": "tvd_b",
+        "physical_shots_total": "shots_b",
+    })
+    pair = left.merge(right, on=key_cols, how="inner", validate="one_to_one")
+    tvd_diff = pair["tvd_a"] - pair["tvd_b"]
+    shot_diff = pair["shots_a"] - pair["shots_b"]
+    tol = 1e-12
+    return {
+        "policy_a": policy_a,
+        "policy_b": policy_b,
+        "paired_runs": int(len(pair)),
+        "median_tvd_difference_a_minus_b": float(tvd_diff.median()),
+        "mean_tvd_difference_a_minus_b": float(tvd_diff.mean()),
+        "median_shot_difference_a_minus_b": float(shot_diff.median()),
+        "identical_tvd_and_shots": int(
+            ((tvd_diff.abs() <= tol) & (shot_diff.abs() <= tol)).sum()
+        ),
+        "a_lower_tvd_runs": int((tvd_diff < -tol).sum()),
+        "a_higher_tvd_runs": int((tvd_diff > tol).sum()),
+    }
+
+
 def pair_summary(single: pd.DataFrame, reps: int, seed: int) -> pd.DataFrame:
     metrics = [
         "final_tvd_to_aer",
         "delta_tvd_vs_no_failure",
+        "abs_delta_tvd",
+        "handoff_transfer_coeff",
         "physical_shots_total",
         "post_failure_shots",
         "shot_overhead_vs_no_failure",
@@ -246,7 +407,14 @@ def pair_predictor_correlations(single: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     rows: List[Dict[str, object]] = []
     predictors = ["pair_reference_tvd", "target_tvd_to_aer", "quality_change", "source_tvd_to_aer"]
-    outcomes = ["final_tvd_to_aer", "delta_tvd_vs_no_failure", "post_failure_shots", "shot_overhead_vs_no_failure"]
+    outcomes = [
+        "final_tvd_to_aer",
+        "delta_tvd_vs_no_failure",
+        "abs_delta_tvd",
+        "handoff_transfer_coeff",
+        "post_failure_shots",
+        "shot_overhead_vs_no_failure",
+    ]
     for policy, group in single.groupby("policy"):
         for failure_fraction, gf in group.groupby("failure_fraction"):
             for predictor in predictors:
@@ -280,7 +448,14 @@ def decay_sensitivity(single: pd.DataFrame, reps: int, seed: int) -> pd.DataFram
     return summary_table(
         frame,
         ["policy", "failure_fraction"],
-        ["final_tvd_to_aer", "delta_tvd_vs_no_failure", "physical_shots_total", "post_failure_shots"],
+        [
+            "final_tvd_to_aer",
+            "delta_tvd_vs_no_failure",
+            "abs_delta_tvd",
+            "handoff_transfer_coeff",
+            "physical_shots_total",
+            "post_failure_shots",
+        ],
         reps,
         seed,
     )
@@ -341,7 +516,12 @@ def save_pair_heatmaps(single: pd.DataFrame, policies: Sequence[str], path_dir: 
         frame = single[single["policy"] == policy]
         if frame.empty:
             continue
-        for metric in ["delta_tvd_vs_no_failure", "shot_overhead_vs_no_failure"]:
+        for metric in [
+            "delta_tvd_vs_no_failure",
+            "abs_delta_tvd",
+            "handoff_transfer_coeff",
+            "shot_overhead_vs_no_failure",
+        ]:
             matrix = frame.pivot_table(
                 index="source_backend",
                 columns="target_backend",
@@ -381,6 +561,16 @@ def main() -> None:
     analysis_cfg = cfg["analysis"]
     reps = int(analysis_cfg["bootstrap_repetitions"])
     seed = int(analysis_cfg["bootstrap_seed"])
+    transfer_min_abs_restart_delta = float(
+        analysis_cfg.get("transfer_min_abs_restart_delta", 0.01)
+    )
+    transfer_thresholds = [
+        float(x)
+        for x in analysis_cfg.get(
+            "transfer_threshold_sensitivity",
+            [0.005, 0.01, 0.02],
+        )
+    ]
 
     refs = read_optional(raw_dir / "qpu_references.csv")
     no_failure = read_optional(raw_dir / "no_failure_runs.csv")
@@ -408,12 +598,17 @@ def main() -> None:
         ).to_csv(analysis_dir / "fixed_shot_summary.csv", index=False)
 
     if not single.empty:
+        single = enrich_single_failure(single, transfer_min_abs_restart_delta)
+        single.to_csv(analysis_dir / "single_failure_enriched.csv", index=False)
+
         summary_table(
             single,
             ["policy", "failure_fraction"],
             [
                 "final_tvd_to_aer",
                 "delta_tvd_vs_no_failure",
+                "abs_delta_tvd",
+                "handoff_transfer_coeff",
                 "physical_shots_total",
                 "post_failure_shots",
                 "shot_overhead_vs_no_failure",
@@ -422,6 +617,36 @@ def main() -> None:
             reps,
             seed,
         ).to_csv(analysis_dir / "single_failure_summary.csv", index=False)
+
+        handoff_transfer_summary(
+            single,
+            ["policy", "failure_fraction"],
+            reps,
+            seed,
+        ).to_csv(analysis_dir / "handoff_transfer_summary.csv", index=False)
+
+        handoff_transfer_summary(
+            single,
+            ["handoff_direction", "policy", "failure_fraction"],
+            reps,
+            seed,
+        ).to_csv(analysis_dir / "handoff_direction_summary.csv", index=False)
+
+        transfer_threshold_sensitivity(
+            single,
+            transfer_thresholds,
+        ).to_csv(analysis_dir / "handoff_transfer_threshold_sensitivity.csv", index=False)
+
+        paired = pd.DataFrame([
+            paired_policy_comparison(single, "controller_reset", "naive_continuation"),
+            paired_policy_comparison(single, "epoch_local", "full_restart"),
+            paired_policy_comparison(single, "fixed_decay_0.25", "full_restart"),
+            paired_policy_comparison(single, "fixed_decay_0.5", "full_restart"),
+            paired_policy_comparison(single, "fixed_decay_0.75", "full_restart"),
+            paired_policy_comparison(single, "shift_aware_decay", "controller_reset"),
+            paired_policy_comparison(single, "shift_aware_decay", "fixed_decay_0.5"),
+        ])
+        paired.to_csv(analysis_dir / "paired_policy_comparisons.csv", index=False)
 
         pair_summary(single, reps, seed).to_csv(analysis_dir / "handoff_pair_summary.csv", index=False)
         pair_predictor_correlations(single).to_csv(
@@ -443,6 +668,8 @@ def main() -> None:
             [
                 "final_tvd_to_aer",
                 "delta_tvd_vs_no_failure",
+                "abs_delta_tvd",
+                "handoff_transfer_coeff",
                 "physical_shots_total",
                 "post_failure_shots",
                 "shot_overhead_vs_no_failure",
@@ -469,6 +696,49 @@ def main() -> None:
             "Single failure: shot overhead vs failure location",
             plots_dir / "failure_fraction_shot_overhead.png",
         )
+        save_line_plot(
+            single,
+            "failure_fraction",
+            "abs_delta_tvd",
+            "policy",
+            "Median |Delta TVD|",
+            "Single failure: handoff magnitude vs failure location",
+            plots_dir / "failure_fraction_abs_delta_tvd.png",
+        )
+        transfer_defined = single[single["handoff_transfer_defined"]].copy()
+        save_line_plot(
+            transfer_defined,
+            "failure_fraction",
+            "handoff_transfer_coeff",
+            "policy",
+            "Median handoff transfer coefficient H",
+            "History inertia: realized handoff effect vs failure location",
+            plots_dir / "failure_fraction_handoff_transfer.png",
+        )
+        for direction in ["improving", "degrading"]:
+            direction_frame = single[single["handoff_direction"] == direction].copy()
+            save_line_plot(
+                direction_frame,
+                "failure_fraction",
+                "delta_tvd_vs_no_failure",
+                "policy",
+                "Median Delta TVD vs no failure",
+                f"{direction.title()} handoffs: signed effect vs failure location",
+                plots_dir / f"failure_fraction_delta_tvd_{direction}.png",
+            )
+            direction_transfer = direction_frame[
+                direction_frame["handoff_transfer_defined"]
+            ].copy()
+            save_line_plot(
+                direction_transfer,
+                "failure_fraction",
+                "handoff_transfer_coeff",
+                "policy",
+                "Median handoff transfer coefficient H",
+                f"{direction.title()} handoffs: retained responsiveness",
+                plots_dir / f"failure_fraction_handoff_transfer_{direction}.png",
+            )
+
         save_oracle_bar(
             oracle,
             "final_tvd_to_aer",

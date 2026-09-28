@@ -699,3 +699,54 @@ STABLESHOTS_DISABLE_AUTO_PUSH=1
 ~~~
 
 The GitHub Actions smoke test sets this variable and also disables publication in its temporary smoke configuration, so CI artifacts are uploaded to the workflow rather than committed to the research branch.
+
+
+## Handoff magnitude and normalized transfer analysis
+
+The primary single-failure analysis now avoids relying on the globally signed median Delta TVD, because directed handoffs can cancel when improving and degrading transitions are pooled.
+
+For every single-failure row the analysis adds:
+
+- **abs_delta_tvd** = absolute value of the TVD change relative to the matched no-failure source-QPU run;
+- **handoff_direction** = improving when target QPU reference TVD to Aer is lower than the source, degrading when it is higher;
+- **restart_delta_tvd** = the matched full-restart TVD change for the same circuit, source, target, and failure location;
+- **handoff_transfer_coeff**:
+  [
+  H_p = rac{Delta TVD_p}{Delta TVD_{restart}}.
+  ]
+
+The coefficient is defined only when the full-restart effect is sufficiently far from zero. The default guard is:
+
+[
+|Delta TVD_{restart}| ge 0.01.
+]
+
+This prevents unstable ratios from handoffs for which the source and replacement have almost identical ideal error.
+
+Interpretation:
+
+- (H=0): the replacement has almost no realized effect relative to restart;
+- (H=1): the policy realizes the full restart-level handoff effect;
+- (0<H<1): historical evidence partially damps the replacement-QPU effect;
+- (H<0) or (H>1): the policy reverses or overshoots the restart-level effect and should be inspected individually.
+
+The analysis also writes a cutoff-sensitivity table for 0.005, 0.01, and 0.02.
+
+New derived files include:
+
+- **single_failure_enriched.csv**
+- **handoff_transfer_summary.csv**
+- **handoff_direction_summary.csv**
+- **handoff_transfer_threshold_sensitivity.csv**
+- **paired_policy_comparisons.csv**
+
+New figures include:
+
+- **failure_fraction_abs_delta_tvd.png**
+- **failure_fraction_handoff_transfer.png**
+- **failure_fraction_delta_tvd_improving.png**
+- **failure_fraction_delta_tvd_degrading.png**
+- **failure_fraction_handoff_transfer_improving.png**
+- **failure_fraction_handoff_transfer_degrading.png**
+
+For resilience conclusions, prefer the direction-stratified signed Delta TVD, absolute Delta TVD, and H together. The global signed Delta TVD can be close to zero because the experiment intentionally contains both directions of every QPU pair.

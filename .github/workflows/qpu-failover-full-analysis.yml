@@ -1,0 +1,68 @@
+name: QPU failover full analysis
+
+on:
+  push:
+    branches:
+      - research/qpu-failover-stableshots
+    paths:
+      - "experiments/analyze_failover_results.py"
+      - "experiments/failover_config.json"
+      - "results/qpu_failover/raw/**"
+      - "results/qpu_failover/run_manifest.json"
+      - ".github/workflows/qpu-failover-full-analysis.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qpu-failover-full-analysis
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    name: Analyze full failover results
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out research branch
+        uses: actions/checkout@v4
+        with:
+          ref: research/qpu-failover-stableshots
+          fetch-depth: 0
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install project
+        run: uv sync --frozen
+
+      - name: Configure Git identity for result publication
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Run full failover analysis
+        run: |
+          uv run python experiments/analyze_failover_results.py \
+            --config experiments/failover_config.json
+
+      - name: Verify new analysis outputs
+        run: |
+          test -s results/qpu_failover/analysis/single_failure_enriched.csv
+          test -s results/qpu_failover/analysis/handoff_transfer_summary.csv
+          test -s results/qpu_failover/analysis/handoff_direction_summary.csv
+          test -s results/qpu_failover/analysis/handoff_transfer_threshold_sensitivity.csv
+          test -s results/qpu_failover/analysis/paired_policy_comparisons.csv
+          test -s results/qpu_failover/plots/failure_fraction_abs_delta_tvd.png
+          test -s results/qpu_failover/plots/failure_fraction_handoff_transfer.png
+          test -s results/qpu_failover/plots/failure_fraction_delta_tvd_improving.png
+          test -s results/qpu_failover/plots/failure_fraction_delta_tvd_degrading.png
