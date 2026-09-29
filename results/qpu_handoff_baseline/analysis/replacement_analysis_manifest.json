@@ -5,13 +5,17 @@
   "failure_summary_rows": 5,
   "source_failure_summary_rows": 25,
   "source_summary_rows": 5,
+  "effect_failure_summary_rows": 5,
+  "effect_source_failure_summary_rows": 25,
+  "pair_failure_ranking_rows": 100,
+  "top5_pair_rows": 25,
+  "primary_harm_threshold_delta_tvd": 0.05,
   "random_policy": "uniform over the four available replacement QPUs",
   "random_policy_evaluation": "exact enumeration; no Monte Carlo target draws",
   "reference_counterfactual": "matched source-QPU no-failure StableShots run",
   "safety_tolerances_delta_tvd": [
     0.0,
     0.01,
-    0.02,
     0.05
   ],
   "max_shots": 20000
