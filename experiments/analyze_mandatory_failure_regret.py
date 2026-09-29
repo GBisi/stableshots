@@ -122,8 +122,10 @@ def summarize(events: pd.DataFrame, group_cols: Sequence[str]) -> pd.DataFrame:
         for metric in metrics:
             values = pd.to_numeric(group[metric], errors="coerce").dropna()
             row[f"min_{metric}"] = float(values.min())
-            row[f"max_{metric}"] = float(values.max())
+            row[f"q25_{metric}"] = float(values.quantile(0.25))
             row[f"median_{metric}"] = float(values.median())
+            row[f"q75_{metric}"] = float(values.quantile(0.75))
+            row[f"max_{metric}"] = float(values.max())
             row[f"mean_{metric}"] = float(values.mean())
             row[f"std_{metric}"] = float(values.std(ddof=1))
         row["p_r_tvd_gt_0p05"] = float(group["r_tvd_gt_0p05"].mean())
