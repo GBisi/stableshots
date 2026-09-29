@@ -1,0 +1,74 @@
+name: Mandatory failure regret analysis
+
+on:
+  push:
+    branches:
+      - research/qpu-handoff-baseline
+    paths:
+      - "experiments/analyze_mandatory_failure_regret.py"
+      - ".github/workflows/qpu-mandatory-failure-regret.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qpu-mandatory-failure-regret
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/qpu-handoff-baseline
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - name: Run regret analysis
+        run: |
+          uv run python experiments/analyze_mandatory_failure_regret.py \
+            --config experiments/handoff_baseline_config.json
+
+      - name: Verify regret outputs
+        run: |
+          uv run python - <<'PY'
+          import pandas as pd
+
+          e = pd.read_csv(
+              "results/qpu_handoff_baseline/analysis/mandatory_failure_regret_events.csv"
+          )
+          assert len(e) == 3600
+          assert e["r_tvd"].ge(-1e-12).all()
+          assert e["r_shots"].ge(-1e-9).all()
+          assert (
+              e["r_tvd"]
+              - (
+                  e["random_delta_tvd_vs_source_no_failure"]
+                  - e["best_delta_tvd_vs_source_no_failure"]
+              )
+          ).abs().max() < 1e-10
+          PY
+
+      - name: Publish regret outputs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add results/qpu_handoff_baseline/analysis/mandatory_failure_regret_*
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Add absolute-shot mandatory failure regret analysis"
+          git push origin HEAD:refs/heads/research/qpu-handoff-baseline
