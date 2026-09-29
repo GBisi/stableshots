@@ -1,0 +1,88 @@
+name: QPU handoff replacement-choice analysis
+
+on:
+  push:
+    branches:
+      - research/qpu-handoff-baseline
+    paths:
+      - "experiments/analyze_handoff_replacement_choice.py"
+      - "results/qpu_handoff_baseline/raw/**"
+      - ".github/workflows/qpu-handoff-choice-analysis.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qpu-handoff-choice-analysis
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze replacement choice
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out experiment branch
+        uses: actions/checkout@v4
+        with:
+          ref: research/qpu-handoff-baseline
+          fetch-depth: 0
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install project
+        run: uv sync --frozen
+
+      - name: Run replacement-choice analysis
+        run: |
+          uv run python experiments/analyze_handoff_replacement_choice.py \
+            --config experiments/handoff_baseline_config.json
+
+      - name: Verify outputs
+        run: |
+          uv run python - <<'PY'
+          import pandas as pd
+
+          candidates = pd.read_csv(
+              "results/qpu_handoff_baseline/analysis/replacement_candidates_enriched.csv"
+          )
+          events = pd.read_csv(
+              "results/qpu_handoff_baseline/analysis/replacement_event_metrics.csv"
+          )
+          failure = pd.read_csv(
+              "results/qpu_handoff_baseline/analysis/replacement_failure_summary.csv"
+          )
+          source_failure = pd.read_csv(
+              "results/qpu_handoff_baseline/analysis/replacement_source_failure_summary.csv"
+          )
+
+          assert len(candidates) == 3600, len(candidates)
+          assert len(events) == 900, len(events)
+          assert len(failure) == 5, len(failure)
+          assert len(source_failure) == 25, len(source_failure)
+          assert (events["candidate_targets"] == 4).all()
+          assert events["random_tvd_regret"].ge(-1e-12).all()
+          assert events["random_shot_regret"].ge(-1e-12).all()
+          PY
+
+      - name: Publish replacement-choice outputs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add             results/qpu_handoff_baseline/analysis/replacement_*             results/qpu_handoff_baseline/plots/replacement_*
+          if git diff --cached --quiet; then
+            echo "No generated changes to publish"
+            exit 0
+          fi
+          git commit -m "Add QPU replacement-choice analysis"
+          git push origin HEAD:refs/heads/research/qpu-handoff-baseline
