@@ -57,16 +57,29 @@ def cluster_bootstrap_median_ci(
         value = float(work[metric].median())
         return value, value
 
-    values_by_cluster = {
-        cluster: work.loc[work[cluster_col] == cluster, metric].to_numpy(dtype=float)
+    values_by_cluster = [
+        work.loc[work[cluster_col] == cluster, metric].to_numpy(dtype=float)
         for cluster in clusters
-    }
+    ]
     rng = np.random.default_rng(seed)
-    medians = np.empty(repetitions, dtype=float)
-    for rep in range(repetitions):
-        sampled = rng.integers(0, len(clusters), size=len(clusters))
-        values = np.concatenate([values_by_cluster[clusters[index]] for index in sampled])
-        medians[rep] = np.median(values)
+    lengths = {len(values) for values in values_by_cluster}
+    if len(lengths) == 1:
+        matrix = np.stack(values_by_cluster, axis=0)
+        draws = rng.integers(
+            0,
+            len(clusters),
+            size=(repetitions, len(clusters)),
+        )
+        sampled = matrix[draws]
+        medians = np.median(sampled, axis=(1, 2))
+    else:
+        medians = np.empty(repetitions, dtype=float)
+        for rep in range(repetitions):
+            sampled_indices = rng.integers(0, len(clusters), size=len(clusters))
+            values = np.concatenate(
+                [values_by_cluster[index] for index in sampled_indices]
+            )
+            medians[rep] = np.median(values)
     return (
         float(np.quantile(medians, alpha / 2)),
         float(np.quantile(medians, 1 - alpha / 2)),
