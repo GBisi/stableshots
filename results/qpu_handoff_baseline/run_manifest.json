@@ -1,0 +1,18 @@
+{
+  "experiment_name": "qpu_handoff_baseline",
+  "circuits": 36,
+  "backend_count": 5,
+  "directed_backend_pairs": 20,
+  "failure_fractions": [
+    0.1,
+    0.25,
+    0.5,
+    0.75,
+    0.9
+  ],
+  "no_failure_rows": 180,
+  "handoff_rows": 3600,
+  "policy": "naive_continuation",
+  "total_physical_shot_budget": 20000,
+  "ideal_reference_shots": 200000
+}
