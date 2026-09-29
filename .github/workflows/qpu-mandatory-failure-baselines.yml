@@ -1,0 +1,87 @@
+name: Mandatory failure baselines and analysis
+
+on:
+  push:
+    branches:
+      - research/qpu-handoff-baseline
+    paths:
+      - "experiments/run_mandatory_failure_baselines.py"
+      - "experiments/analyze_mandatory_failure_policies.py"
+      - ".github/workflows/qpu-mandatory-failure-baselines.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qpu-mandatory-failure-baselines
+  cancel-in-progress: true
+
+jobs:
+  baselines:
+    name: Generate and analyze mandatory-failure baselines
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: research/qpu-handoff-baseline
+          fetch-depth: 0
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install project
+        run: uv sync --frozen
+
+      - name: Generate three new baselines
+        run: |
+          uv run python experiments/run_mandatory_failure_baselines.py             --config experiments/handoff_baseline_config.json
+
+      - name: Analyze all mandatory-failure policies
+        run: |
+          uv run python experiments/analyze_mandatory_failure_policies.py             --config experiments/handoff_baseline_config.json
+
+      - name: Verify outputs
+        run: |
+          uv run python - <<'PY'
+          import pandas as pd
+
+          base = pd.read_csv(
+              "results/qpu_handoff_baseline/raw/mandatory_failure_baselines.csv"
+          )
+          events = pd.read_csv(
+              "results/qpu_handoff_baseline/analysis/mandatory_failure_policy_events.csv"
+          )
+          assert len(base) == 10800, len(base)
+          assert len(events) == 3600, len(events)
+          assert set(base["policy"]) == {
+              "fixed_20k_continuation",
+              "restart_stableshots",
+              "restart_fixed_20k",
+          }
+          assert (base["estimator_shots"] > 0).all()
+          assert (base["total_physical_shots"] >= base["estimator_shots"]).all()
+          assert events["candidate_targets"].eq(4).all()
+          PY
+
+      - name: Publish outputs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add             results/qpu_handoff_baseline/raw/mandatory_failure_baselines.csv             results/qpu_handoff_baseline/mandatory_failure_baseline_manifest.json             results/qpu_handoff_baseline/analysis/mandatory_failure_*
+          if git diff --cached --quiet; then
+            echo "No generated changes to publish"
+            exit 0
+          fi
+          git commit -m "Add mandatory failure comparison baselines"
+          git push origin HEAD:refs/heads/research/qpu-handoff-baseline
