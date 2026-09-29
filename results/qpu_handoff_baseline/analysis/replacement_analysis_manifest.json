@@ -1,0 +1,18 @@
+{
+  "candidate_rows": 3600,
+  "failure_events": 900,
+  "candidate_targets_per_event": 4,
+  "failure_summary_rows": 5,
+  "source_failure_summary_rows": 25,
+  "source_summary_rows": 5,
+  "random_policy": "uniform over the four available replacement QPUs",
+  "random_policy_evaluation": "exact enumeration; no Monte Carlo target draws",
+  "reference_counterfactual": "matched source-QPU no-failure StableShots run",
+  "safety_tolerances_delta_tvd": [
+    0.0,
+    0.01,
+    0.02,
+    0.05
+  ],
+  "max_shots": 20000
+}
