@@ -26,7 +26,8 @@ EVENT_COLS = [
     "source_backend",
     "failure_fraction",
 ]
-TOLERANCES = [0.0, 0.01, 0.02, 0.05]
+TOLERANCES = [0.0, 0.01, 0.05]
+PRIMARY_HARM_THRESHOLD = 0.05
 
 
 def deterministic_seed(base: int, *parts: object) -> int:
@@ -289,6 +290,142 @@ def summarize_events(
     return pd.DataFrame(rows)
 
 
+
+def summarize_effect_magnitudes(
+    candidates: pd.DataFrame,
+    group_cols: Sequence[str],
+) -> pd.DataFrame:
+    rows: List[Dict[str, object]] = []
+    for key, group in candidates.groupby(list(group_cols), sort=True, dropna=False):
+        if not isinstance(key, tuple):
+            key = (key,)
+        row: Dict[str, object] = {
+            column: value for column, value in zip(group_cols, key)
+        }
+        delta = pd.to_numeric(group["delta_tvd_vs_source"], errors="coerce")
+        delta = delta[np.isfinite(delta.to_numpy(dtype=float))]
+        improvements = -delta[delta < 0.0]
+        degradations = delta[delta > 0.0]
+        absolute = delta.abs()
+
+        row["candidates"] = int(len(delta))
+        row["p_improves"] = float((delta < 0.0).mean())
+        row["p_degrades"] = float((delta > 0.0).mean())
+        row["p_degrades_gt_0p05"] = float((delta > PRIMARY_HARM_THRESHOLD).mean())
+        row["mean_signed_delta_tvd"] = float(delta.mean())
+        row["median_signed_delta_tvd"] = float(delta.median())
+        row["mean_abs_delta_tvd"] = float(absolute.mean())
+        row["median_abs_delta_tvd"] = float(absolute.median())
+        row["mean_improvement_magnitude_tvd"] = (
+            float(improvements.mean()) if len(improvements) else float("nan")
+        )
+        row["median_improvement_magnitude_tvd"] = (
+            float(improvements.median()) if len(improvements) else float("nan")
+        )
+        row["mean_degradation_magnitude_tvd"] = (
+            float(degradations.mean()) if len(degradations) else float("nan")
+        )
+        row["median_degradation_magnitude_tvd"] = (
+            float(degradations.median()) if len(degradations) else float("nan")
+        )
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def summarize_pair_fraction(handoffs: pd.DataFrame) -> pd.DataFrame:
+    rows: List[Dict[str, object]] = []
+    group_cols = ["failure_fraction", "source_backend", "target_backend"]
+    for key, group in handoffs.groupby(group_cols, sort=True, dropna=False):
+        failure_fraction, source_backend, target_backend = key
+        tvd = pd.to_numeric(
+            group["final_aggregated_tvd_to_aer"], errors="coerce"
+        ).dropna()
+        shots = pd.to_numeric(group["total_shots"], errors="coerce").dropna()
+        rows.append({
+            "failure_fraction": float(failure_fraction),
+            "source_backend": source_backend,
+            "target_backend": target_backend,
+            "runs": int(len(group)),
+            "tvd_min": float(tvd.min()),
+            "tvd_max": float(tvd.max()),
+            "tvd_median": float(tvd.median()),
+            "tvd_mean": float(tvd.mean()),
+            "tvd_std": float(tvd.std(ddof=1)),
+            "shots_min": float(shots.min()),
+            "shots_max": float(shots.max()),
+            "shots_median": float(shots.median()),
+            "shots_mean": float(shots.mean()),
+            "shots_std": float(shots.std(ddof=1)),
+        })
+    summary = pd.DataFrame(rows)
+    summary["tvd_rank_within_failure"] = (
+        summary.groupby("failure_fraction")["tvd_median"]
+        .rank(method="first", ascending=True)
+        .astype(int)
+    )
+    return summary.sort_values(
+        ["failure_fraction", "tvd_rank_within_failure", "tvd_mean"],
+        kind="stable",
+    )
+
+
+def save_effect_magnitude_plot(summary: pd.DataFrame, output: Path) -> None:
+    work = summary.sort_values("failure_fraction")
+    x = work["failure_fraction"].to_numpy(dtype=float)
+    fig, ax = plt.subplots(figsize=(7.8, 4.9))
+    ax.plot(
+        x,
+        work["median_improvement_magnitude_tvd"].to_numpy(dtype=float),
+        marker="o",
+        label="Median improvement magnitude",
+    )
+    ax.plot(
+        x,
+        work["median_degradation_magnitude_tvd"].to_numpy(dtype=float),
+        marker="o",
+        label="Median degradation magnitude",
+    )
+    ax.set_xlabel("Failure fraction")
+    ax.set_ylabel("Absolute TVD change vs source no-failure")
+    ax.set_xticks(x)
+    ax.set_title("How much random replacement improves or degrades TVD")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(output, dpi=180)
+    plt.close(fig)
+
+
+def save_top5_pair_plot(top5: pd.DataFrame, output: Path) -> None:
+    fractions = sorted(top5["failure_fraction"].unique())
+    fig, axes = plt.subplots(len(fractions), 1, figsize=(8.5, 12.5))
+    for ax, fraction in zip(axes, fractions):
+        group = top5[np.isclose(top5["failure_fraction"], fraction)].copy()
+        group = group.sort_values("tvd_median", ascending=True)
+        labels = [
+            f"{row.source_backend.replace('fake_', '')} -> "
+            f"{row.target_backend.replace('fake_', '')}"
+            for row in group.itertuples()
+        ]
+        y = np.arange(len(group))
+        ax.barh(y, group["tvd_median"].to_numpy(dtype=float))
+        ax.set_yticks(y, labels=labels)
+        ax.invert_yaxis()
+        ax.set_xlabel("Median final TVD to Aer")
+        ax.set_title(f"Failure fraction {fraction:g}")
+        for idx, row in enumerate(group.itertuples()):
+            ax.text(
+                float(row.tvd_median),
+                idx,
+                f"  {row.shots_median:.0f} shots",
+                va="center",
+                fontsize=8,
+            )
+    fig.suptitle("Top 5 directed backend pairs by final TVD at each failure fraction")
+    fig.tight_layout()
+    fig.savefig(output, dpi=180)
+    plt.close(fig)
+
+
 def save_line(
     summary: pd.DataFrame,
     y: str,
@@ -432,6 +569,18 @@ def main() -> None:
         repetitions,
         seed,
     )
+    effect_failure_summary = summarize_effect_magnitudes(
+        candidates,
+        ["failure_fraction"],
+    )
+    effect_source_failure_summary = summarize_effect_magnitudes(
+        candidates,
+        ["source_backend", "failure_fraction"],
+    )
+    pair_fraction_summary = summarize_pair_fraction(handoffs)
+    top5_pairs = pair_fraction_summary[
+        pair_fraction_summary["tvd_rank_within_failure"] <= 5
+    ].copy()
 
     candidates.to_csv(analysis_dir / "replacement_candidates_enriched.csv", index=False)
     events.to_csv(analysis_dir / "replacement_event_metrics.csv", index=False)
@@ -440,6 +589,18 @@ def main() -> None:
         analysis_dir / "replacement_source_failure_summary.csv", index=False
     )
     source_summary.to_csv(analysis_dir / "replacement_source_summary.csv", index=False)
+    effect_failure_summary.to_csv(
+        analysis_dir / "replacement_effect_magnitude_by_failure.csv", index=False
+    )
+    effect_source_failure_summary.to_csv(
+        analysis_dir / "replacement_effect_magnitude_by_source_failure.csv", index=False
+    )
+    pair_fraction_summary.to_csv(
+        analysis_dir / "replacement_pair_failure_rankings.csv", index=False
+    )
+    top5_pairs.to_csv(
+        analysis_dir / "replacement_top5_pairs_by_failure.csv", index=False
+    )
 
     save_line(
         failure_summary,
@@ -449,9 +610,16 @@ def main() -> None:
         "Uniform-random replacement: accuracy effect",
         ci=True,
     )
-    save_probability_lines(
+    save_line(
         failure_summary,
-        plots_dir / "replacement_random_harm_probability_vs_failure.png",
+        "mean_p_random_harm_gt_0p05",
+        plots_dir / "replacement_random_harm_gt_0p05_vs_failure.png",
+        "Probability random target worsens TVD by > 0.05",
+        "Material degradation risk under random replacement",
+    )
+    save_effect_magnitude_plot(
+        effect_failure_summary,
+        plots_dir / "replacement_effect_magnitude_vs_failure.png",
     )
     save_line(
         failure_summary,
@@ -505,12 +673,16 @@ def main() -> None:
     )
     save_heatmap(
         source_failure_summary,
-        "mean_p_random_harm_gt_0p02",
+        "mean_p_random_harm_gt_0p05",
         backends,
         fractions,
-        plots_dir / "replacement_source_harm_gt_0p02_heatmap.png",
-        "Probability random replacement worsens TVD by > 0.02",
+        plots_dir / "replacement_source_harm_gt_0p05_heatmap.png",
+        "Probability random replacement worsens TVD by > 0.05",
         "Probability",
+    )
+    save_top5_pair_plot(
+        top5_pairs,
+        plots_dir / "replacement_top5_pairs_by_failure.png",
     )
     save_heatmap(
         source_failure_summary,
@@ -529,6 +701,11 @@ def main() -> None:
         "failure_summary_rows": int(len(failure_summary)),
         "source_failure_summary_rows": int(len(source_failure_summary)),
         "source_summary_rows": int(len(source_summary)),
+        "effect_failure_summary_rows": int(len(effect_failure_summary)),
+        "effect_source_failure_summary_rows": int(len(effect_source_failure_summary)),
+        "pair_failure_ranking_rows": int(len(pair_fraction_summary)),
+        "top5_pair_rows": int(len(top5_pairs)),
+        "primary_harm_threshold_delta_tvd": PRIMARY_HARM_THRESHOLD,
         "random_policy": "uniform over the four available replacement QPUs",
         "random_policy_evaluation": "exact enumeration; no Monte Carlo target draws",
         "reference_counterfactual": "matched source-QPU no-failure StableShots run",
