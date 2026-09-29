@@ -1,0 +1,7 @@
+{
+  "no_failure_rows": 180,
+  "handoff_rows": 3600,
+  "pair_fraction_summary_rows": 100,
+  "primary_unit": "directed source-target pair within failure fraction",
+  "note": "No signed TVD statistic is pooled across opposite directed backend pairs in the primary analysis."
+}
