@@ -755,13 +755,41 @@ The threshold sensitivity table remains at 0.005, 0.01, and 0.02. Values of (H) 
 
 ### Robustness discussion structure
 
-The repeated- and stochastic-failure discussion must be written in exactly three scenario-level parts:
+The discussion is nested in two dimensions.
+
+First, keep the three replacement-order scenarios separate:
 
 1. **Ascending reliability**
 2. **Descending reliability**
 3. **Random**
 
-Aggregate within each scenario only. Do not average, pool, or draw a single headline robustness statistic across the three scenarios. This separation is required because the scenarios encode qualitatively different replacement trajectories and can otherwise recreate the same cancellation problem seen in globally signed single-handoff Delta TVD.
+Second, inside **each scenario**, separate results by failure location:
+
+- 10% of the source no-failure stopping point;
+- 25%;
+- 50%;
+- 75%;
+- 90%.
+
+Do not collapse failure locations into one scenario-wide accuracy effect. The purpose is to expose how the same replacement trajectory changes as more source-QPU history has accumulated before migration.
+
+The analysis constructs this cleanly from the exhaustive single-handoff experiment. For each circuit it identifies the first transition of the ascending, descending, or random sequence, then selects the matched single-handoff rows at every configured failure fraction. Random uses the same seeded sequence construction and repetition count as the deterministic multi-failure experiment.
+
+Derived outputs:
+
+- **scenario_failure_point_runs.csv**
+- **scenario_failure_point_summary.csv**
+- **scenario_failure_point_paired_comparisons.csv**
+
+and, for each scenario:
+
+- **scenario_failure_point_delta_tvd_<scenario>.png**
+- **scenario_failure_point_handoff_response_<scenario>.png**
+- **scenario_failure_point_shot_overhead_<scenario>.png**
+
+Aggregate within one **scenario x failure-location** cell only. Do not average across the three scenarios, and do not average across failure locations when making the timing claim.
+
+The repeated- and stochastic-failure experiments remain robustness checks. They are still reported separately for ascending, descending, and random sequences, but their final outcomes should not be used to infer the isolated effect of a particular failure point after multiple handoffs have already occurred.
 
 ### Reference-sample independence
 

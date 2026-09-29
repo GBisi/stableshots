@@ -642,6 +642,170 @@ def evidence_share_correlations(single: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def derive_scenario_failure_point_runs(
+    single: pd.DataFrame,
+    refs: pd.DataFrame,
+    cfg: Mapping[str, object],
+) -> pd.DataFrame:
+    """Map each reliability scenario's first handoff onto exhaustive single-failure runs."""
+    if single.empty or refs.empty:
+        return pd.DataFrame()
+
+    backends = [str(x) for x in cfg["backends"]]
+    multi_cfg = cfg["multi_failure"]
+    conditions = [str(x) for x in multi_cfg["sequence_conditions"]]
+    random_repetitions = int(multi_cfg["random_repetitions"])
+    random_seed = int(multi_cfg["random_seed"])
+    pieces: List[pd.DataFrame] = []
+
+    for circuit_key, circuit_refs in refs.groupby("circuit_key", sort=True):
+        errors = {
+            str(row["backend"]): float(row["reference_tvd_to_aer"])
+            for _, row in circuit_refs.iterrows()
+        }
+        if any(backend not in errors for backend in backends):
+            continue
+
+        for condition in conditions:
+            repetitions = random_repetitions if condition == "random" else 1
+            for repetition in range(repetitions):
+                if condition == "ascending_reliability":
+                    sequence = sorted(backends, key=lambda backend: errors[backend], reverse=True)
+                elif condition == "descending_reliability":
+                    sequence = sorted(backends, key=lambda backend: errors[backend])
+                elif condition == "random":
+                    sequence = backends[:]
+                    rng = random.Random(
+                        deterministic_seed(
+                            random_seed,
+                            circuit_key,
+                            condition,
+                            repetition,
+                        )
+                    )
+                    rng.shuffle(sequence)
+                else:
+                    raise ValueError(f"unknown sequence condition {condition!r}")
+
+                if len(sequence) < 2:
+                    continue
+                source_backend, target_backend = sequence[:2]
+                selected = single[
+                    (single["circuit_key"] == circuit_key)
+                    & (single["source_backend"] == source_backend)
+                    & (single["target_backend"] == target_backend)
+                ].copy()
+                if selected.empty:
+                    continue
+                selected["sequence_condition"] = condition
+                selected["sequence_repetition"] = repetition
+                selected["scenario_source_backend"] = source_backend
+                selected["scenario_target_backend"] = target_backend
+                pieces.append(selected)
+
+    return pd.concat(pieces, ignore_index=True) if pieces else pd.DataFrame()
+
+
+def scenario_failure_point_paired_comparisons(
+    scenario_runs: pd.DataFrame,
+    reps: int,
+    seed: int,
+) -> pd.DataFrame:
+    if scenario_runs.empty:
+        return pd.DataFrame()
+
+    comparisons = [
+        ("controller_reset", "naive_continuation"),
+        ("fixed_decay_0.5", "naive_continuation"),
+        ("shift_aware_decay", "naive_continuation"),
+        ("fixed_decay_0.5", "full_restart"),
+        ("shift_aware_decay", "fixed_decay_0.5"),
+    ]
+    rows: List[Dict[str, object]] = []
+    merge_keys = [
+        "circuit_key",
+        "sequence_condition",
+        "sequence_repetition",
+        "failure_fraction",
+        "source_backend",
+        "target_backend",
+    ]
+
+    for (scenario, failure_fraction), group in scenario_runs.groupby(
+        ["sequence_condition", "failure_fraction"], sort=True
+    ):
+        for policy_a, policy_b in comparisons:
+            left = group[group["policy"] == policy_a][
+                merge_keys + ["final_tvd_to_aer", "physical_shots_total"]
+            ].rename(
+                columns={
+                    "final_tvd_to_aer": "tvd_a",
+                    "physical_shots_total": "shots_a",
+                }
+            )
+            right = group[group["policy"] == policy_b][
+                merge_keys + ["final_tvd_to_aer", "physical_shots_total"]
+            ].rename(
+                columns={
+                    "final_tvd_to_aer": "tvd_b",
+                    "physical_shots_total": "shots_b",
+                }
+            )
+            pair = left.merge(right, on=merge_keys, how="inner")
+            if pair.empty:
+                continue
+            pair["tvd_diff"] = pair["tvd_a"] - pair["tvd_b"]
+            pair["shot_diff"] = pair["shots_a"] - pair["shots_b"]
+            tvd_low, tvd_high = bootstrap_median_ci_clustered(
+                pair,
+                "tvd_diff",
+                "circuit_key",
+                reps,
+                deterministic_seed(
+                    seed,
+                    scenario,
+                    failure_fraction,
+                    policy_a,
+                    policy_b,
+                    "scenario_failure_point_tvd",
+                ),
+            )
+            shot_low, shot_high = bootstrap_median_ci_clustered(
+                pair,
+                "shot_diff",
+                "circuit_key",
+                reps,
+                deterministic_seed(
+                    seed,
+                    scenario,
+                    failure_fraction,
+                    policy_a,
+                    policy_b,
+                    "scenario_failure_point_shots",
+                ),
+            )
+            tol = 1e-12
+            rows.append(
+                {
+                    "sequence_condition": scenario,
+                    "failure_fraction": float(failure_fraction),
+                    "policy_a": policy_a,
+                    "policy_b": policy_b,
+                    "paired_runs": int(len(pair)),
+                    "median_tvd_difference_a_minus_b": float(pair["tvd_diff"].median()),
+                    "mean_tvd_difference_a_minus_b": float(pair["tvd_diff"].mean()),
+                    "median_tvd_difference_ci_low": tvd_low,
+                    "median_tvd_difference_ci_high": tvd_high,
+                    "median_shot_difference_a_minus_b": float(pair["shot_diff"].median()),
+                    "median_shot_difference_ci_low": shot_low,
+                    "median_shot_difference_ci_high": shot_high,
+                    "a_lower_tvd_runs": int((pair["tvd_diff"] < -tol).sum()),
+                    "a_higher_tvd_runs": int((pair["tvd_diff"] > tol).sum()),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
 def save_line_plot(
     df: pd.DataFrame,
     x: str,
@@ -842,6 +1006,92 @@ def main() -> None:
         evidence_share_correlations(single).to_csv(
             analysis_dir / "evidence_share_correlations.csv", index=False
         )
+
+        scenario_failure_runs = derive_scenario_failure_point_runs(single, refs, cfg)
+        if not scenario_failure_runs.empty:
+            scenario_failure_columns = [
+                "circuit_key",
+                "algorithm",
+                "size",
+                "sequence_condition",
+                "sequence_repetition",
+                "scenario_source_backend",
+                "scenario_target_backend",
+                "policy",
+                "failure_fraction",
+                "handoff_direction",
+                "final_tvd_to_aer",
+                "delta_tvd_vs_no_failure",
+                "abs_delta_tvd",
+                "handoff_transfer_coeff",
+                "target_evidence_share",
+                "physical_shots_total",
+                "shot_overhead_vs_no_failure",
+                "target_violation",
+            ]
+            scenario_failure_runs.loc[
+                :,
+                [column for column in scenario_failure_columns if column in scenario_failure_runs.columns],
+            ].to_csv(analysis_dir / "scenario_failure_point_runs.csv", index=False)
+
+            summary_table(
+                scenario_failure_runs,
+                ["sequence_condition", "failure_fraction", "policy"],
+                [
+                    "final_tvd_to_aer",
+                    "delta_tvd_vs_no_failure",
+                    "abs_delta_tvd",
+                    "handoff_transfer_coeff",
+                    "target_evidence_share",
+                    "physical_shots_total",
+                    "shot_overhead_vs_no_failure",
+                ],
+                reps,
+                seed,
+                cluster_col="circuit_key",
+            ).to_csv(analysis_dir / "scenario_failure_point_summary.csv", index=False)
+
+            scenario_failure_point_paired_comparisons(
+                scenario_failure_runs,
+                reps,
+                seed,
+            ).to_csv(
+                analysis_dir / "scenario_failure_point_paired_comparisons.csv",
+                index=False,
+            )
+
+            for scenario in ["ascending_reliability", "descending_reliability", "random"]:
+                scenario_frame = scenario_failure_runs[
+                    scenario_failure_runs["sequence_condition"] == scenario
+                ].copy()
+                scenario_label = scenario.replace("_", " ").title()
+                save_line_plot(
+                    scenario_frame,
+                    "failure_fraction",
+                    "delta_tvd_vs_no_failure",
+                    "policy",
+                    "Median Delta TVD vs no failure",
+                    f"{scenario_label}: signed handoff effect by failure location",
+                    plots_dir / f"scenario_failure_point_delta_tvd_{scenario}.png",
+                )
+                save_line_plot(
+                    scenario_frame[scenario_frame["handoff_transfer_defined"]].copy(),
+                    "failure_fraction",
+                    "handoff_transfer_coeff",
+                    "policy",
+                    "Median restart-normalized handoff response H",
+                    f"{scenario_label}: handoff response by failure location",
+                    plots_dir / f"scenario_failure_point_handoff_response_{scenario}.png",
+                )
+                save_line_plot(
+                    scenario_frame,
+                    "failure_fraction",
+                    "shot_overhead_vs_no_failure",
+                    "policy",
+                    "Median shot overhead",
+                    f"{scenario_label}: shot overhead by failure location",
+                    plots_dir / f"scenario_failure_point_shot_overhead_{scenario}.png",
+                )
 
         replacement_cfg = cfg["replacement_conditions"]
         oracle = derive_oracle_replacement_runs(

@@ -676,4 +676,6 @@ The main figures include:
 
 Repeated- and stochastic-failure figures are generated separately for **ascending_reliability**, **descending_reliability**, and **random**. There is deliberately no pooled cross-scenario robustness curve.
 
+For controlled timing analysis, the exhaustive single-handoff data are additionally projected onto the first transition of each sequence condition. This yields a strict **scenario x failure-location** decomposition at 10%, 25%, 50%, 75%, and 90% of the source-QPU no-failure stopping point. Results are aggregated only inside one such cell. This avoids mixing early and late handoffs inside the same scenario and avoids attributing a multi-handoff final state to one specific failure point.
+
 For resilience conclusions, use direction-stratified signed Delta TVD, absolute Delta TVD, target evidence share, restart-normalized response (H), and physical-shot cost together.
