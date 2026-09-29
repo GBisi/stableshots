@@ -1,0 +1,84 @@
+name: QPU handoff baseline experiment
+
+on:
+  push:
+    branches:
+      - research/qpu-handoff-baseline
+    paths:
+      - "experiments/run_handoff_baseline_experiment.py"
+      - "experiments/analyze_handoff_baseline.py"
+      - "experiments/handoff_baseline_config.json"
+      - ".github/workflows/qpu-handoff-baseline.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qpu-handoff-baseline
+  cancel-in-progress: true
+
+jobs:
+  experiment:
+    name: Run clean directed handoff experiment
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+
+    steps:
+      - name: Check out experiment branch
+        uses: actions/checkout@v4
+        with:
+          ref: research/qpu-handoff-baseline
+          fetch-depth: 0
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install project
+        run: uv sync --frozen
+
+      - name: Run experiment
+        run: |
+          uv run python experiments/run_handoff_baseline_experiment.py             --config experiments/handoff_baseline_config.json
+
+      - name: Run analysis
+        run: |
+          uv run python experiments/analyze_handoff_baseline.py             --config experiments/handoff_baseline_config.json
+
+      - name: Verify experiment cardinality
+        run: |
+          uv run python - <<'PY'
+          import pandas as pd
+
+          no_failure = pd.read_csv("results/qpu_handoff_baseline/raw/no_failure_runs.csv")
+          handoffs = pd.read_csv("results/qpu_handoff_baseline/raw/handoff_runs.csv")
+          summary = pd.read_csv("results/qpu_handoff_baseline/analysis/handoff_pair_fraction_summary.csv")
+
+          assert len(no_failure) == 180, len(no_failure)
+          assert len(handoffs) == 3600, len(handoffs)
+          assert len(summary) == 100, len(summary)
+          assert set(handoffs["failure_fraction"]) == {0.1, 0.25, 0.5, 0.75, 0.9}
+          assert (handoffs["source_backend"] != handoffs["target_backend"]).all()
+          assert handoffs["total_shots"].max() <= 20000
+          assert handoffs["failure_point_tvd_to_aer"].notna().all()
+          assert handoffs["final_aggregated_tvd_to_aer"].notna().all()
+          PY
+
+      - name: Publish generated results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add results/qpu_handoff_baseline
+          if git diff --cached --quiet; then
+            echo "No generated changes to publish"
+            exit 0
+          fi
+          git commit -m "Add clean QPU handoff baseline results"
+          git push origin HEAD:refs/heads/research/qpu-handoff-baseline
