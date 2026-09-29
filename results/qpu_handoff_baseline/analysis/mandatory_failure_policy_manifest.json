@@ -1,0 +1,15 @@
+{
+  "candidate_rows": 14400,
+  "events": 3600,
+  "policies": [
+    "fixed_20k_continuation",
+    "restart_fixed_20k",
+    "restart_stableshots",
+    "stableshots_continuation"
+  ],
+  "tvd_practical_threshold_absolute": 0.05,
+  "shot_practical_threshold_relative": 0.05,
+  "cap_free_definition": "exclude only max_budget StableShots candidates; fixed-20k baselines are retained because 20k is intentional",
+  "cap_free_candidate_rows": 12396,
+  "cap_free_events": 3132
+}

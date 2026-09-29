@@ -1,0 +1,12 @@
+{
+  "rows": 10800,
+  "policies": [
+    "fixed_20k_continuation",
+    "restart_fixed_20k",
+    "restart_stableshots"
+  ],
+  "rows_per_policy": 3600,
+  "fixed_total_budget_continuation": 20000,
+  "restart_fixed_target_shots": 20000,
+  "restart_cost_definition": "total physical shots include discarded pre-failure source shots"
+}
