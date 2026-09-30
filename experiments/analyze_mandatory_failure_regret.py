@@ -5,15 +5,10 @@ Primary metrics:
 - R_TVD = E_random[TVD_to_Aer] - min_target(TVD_to_Aer)
 - R_shots = E_random[physical_shots] - min_target(physical_shots)
 
-TVD is also reported through the matched no-failure-source lens:
-Delta_source = TVD - TVD_source_no_failure.
-Because the same matched source baseline is subtracted from random and oracle
-outcomes, R_TVD is identical under the absolute-Aer and matched-source lenses.
-
 Cross-metrics are signed:
 - random_minus_tvd_oracle_shots: shot difference when comparing random choice
   with the TVD-optimal target.
-- random_minus_shot_oracle_tvd: TVD difference when comparing random choice
+- random_minus_shot_oracle_tvd: Aer-TVD difference when comparing random choice
   with the shot-optimal target.
 """
 
@@ -40,8 +35,6 @@ def derive_events(candidates: pd.DataFrame) -> pd.DataFrame:
         }
         tvd = group["final_aggregated_tvd_to_aer"].to_numpy(dtype=float)
         shots = group["total_physical_shots"].to_numpy(dtype=float)
-        source_tvd = float(group["source_no_failure_final_tvd_to_aer"].iloc[0])
-
         random_tvd = float(np.mean(tvd))
         random_shots = float(np.mean(shots))
         best_tvd = float(np.min(tvd))
@@ -52,23 +45,15 @@ def derive_events(candidates: pd.DataFrame) -> pd.DataFrame:
         shots_at_best_tvd = float(best_tvd_group["total_physical_shots"].mean())
         tvd_at_best_shots = float(best_shot_group["final_aggregated_tvd_to_aer"].mean())
 
-        random_delta_source = random_tvd - source_tvd
-        best_tvd_delta_source = best_tvd - source_tvd
-        shot_oracle_delta_source = tvd_at_best_shots - source_tvd
-
         r_tvd = random_tvd - best_tvd
         r_shots = random_shots - best_shots
 
         row.update(
             {
                 "candidate_targets": int(len(group)),
-                "source_no_failure_tvd_to_aer": source_tvd,
-
                 # TVD-optimal comparison.
                 "random_tvd_to_aer": random_tvd,
                 "best_tvd_to_aer": best_tvd,
-                "random_delta_tvd_vs_source_no_failure": random_delta_source,
-                "best_delta_tvd_vs_source_no_failure": best_tvd_delta_source,
                 "r_tvd": r_tvd,
                 "random_shots_for_tvd_comparison": random_shots,
                 "shots_at_best_tvd": shots_at_best_tvd,
@@ -81,8 +66,6 @@ def derive_events(candidates: pd.DataFrame) -> pd.DataFrame:
                 "random_tvd_for_shot_comparison": random_tvd,
                 "tvd_at_best_shots": tvd_at_best_shots,
                 "random_minus_shot_oracle_tvd": random_tvd - tvd_at_best_shots,
-                "random_delta_tvd_vs_source_for_shot_comparison": random_delta_source,
-                "shot_oracle_delta_tvd_vs_source_no_failure": shot_oracle_delta_source,
 
                 # Practical thresholds.
                 "r_tvd_gt_0p05": r_tvd > TVD_THRESHOLD,
@@ -102,14 +85,11 @@ def summarize(events: pd.DataFrame, group_cols: Sequence[str]) -> pd.DataFrame:
         "r_shots",
         "random_tvd_to_aer",
         "best_tvd_to_aer",
-        "random_delta_tvd_vs_source_no_failure",
-        "best_delta_tvd_vs_source_no_failure",
         "random_physical_shots",
         "best_physical_shots",
         "random_minus_tvd_oracle_shots",
         "tvd_at_best_shots",
         "random_minus_shot_oracle_tvd",
-        "shot_oracle_delta_tvd_vs_source_no_failure",
     ]
     rows: List[Dict[str, object]] = []
     for key, group in events.groupby(list(group_cols), sort=True, dropna=False):
@@ -197,10 +177,6 @@ def main() -> None:
         "r_shots_definition": "random expected physical shots minus minimum-target physical shots",
         "tvd_threshold": TVD_THRESHOLD,
         "shot_threshold_absolute": SHOT_THRESHOLD,
-        "tvd_relative_lens": (
-            "also report random and best TVD relative to matched source no-failure; "
-            "R_TVD is numerically unchanged because the matched baseline cancels"
-        ),
         "cap_free_events": int(len(cap_free_events)),
     }
     (analysis_dir / "mandatory_failure_regret_manifest.json").write_text(
