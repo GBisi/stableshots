@@ -10,6 +10,5 @@
   "r_shots_definition": "random expected physical shots minus minimum-target physical shots",
   "tvd_threshold": 0.05,
   "shot_threshold_absolute": 1000.0,
-  "tvd_relative_lens": "also report random and best TVD relative to matched source no-failure; R_TVD is numerically unchanged because the matched baseline cancels",
   "cap_free_events": 3132
 }
