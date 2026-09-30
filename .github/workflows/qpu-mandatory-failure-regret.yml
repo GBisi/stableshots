@@ -55,11 +55,12 @@ jobs:
           assert e["r_shots"].ge(-1e-9).all()
           assert (
               e["r_tvd"]
-              - (
-                  e["random_delta_tvd_vs_source_no_failure"]
-                  - e["best_delta_tvd_vs_source_no_failure"]
-              )
+              - (e["random_tvd_to_aer"] - e["best_tvd_to_aer"])
           ).abs().max() < 1e-10
+          assert not any(
+              "source_no_failure" in column or "delta_tvd_vs_source" in column
+              for column in e.columns
+          )
           PY
 
       - name: Publish regret outputs
