@@ -2,10 +2,12 @@
   "no_failure_rows": 540,
   "handoff_rows": 21600,
   "selection_events": 5400,
+  "candidate_gap_rows": 21600,
   "candidate_targets_per_event": 4,
   "random_policy": "exact uniform mean over four alternative target QPUs",
   "tvd_practical_threshold": 0.05,
-  "shot_practical_threshold": 1000.0,
+  "shot_practical_threshold_fraction_of_matched_source_no_failure": 0.05,
+  "shot_threshold_definition": "5% of matched no-failure physical shots for the same (circuit, size, source backend, stopping rule)",
   "primary_proposal": "stableshots_keep",
   "failure_fraction_basis": "fraction of matched no-failure stopping count for same stopping rule",
   "analysis_units": {
