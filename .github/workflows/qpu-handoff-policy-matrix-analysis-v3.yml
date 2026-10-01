@@ -1,0 +1,82 @@
+name: QPU handoff policy matrix analysis v3
+
+on:
+  push:
+    branches:
+      - research/qpu-handoff-policy-matrix
+    paths:
+      - "experiments/handoff_policy_matrix_analysis_v3_config.json"
+      - "experiments/analyze_handoff_policy_matrix_v3.py"
+      - ".github/workflows/qpu-handoff-policy-matrix-analysis-v3.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qpu-handoff-policy-matrix-analysis-v3
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/qpu-handoff-policy-matrix
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Run analysis v3
+        run: |
+          uv run python experiments/analyze_handoff_policy_matrix_v3.py             --config experiments/handoff_policy_matrix_analysis_v3_config.json
+      - name: Verify
+        run: |
+          uv run python - <<'PY'
+          import json
+          import pandas as pd
+
+          root = "results/qpu_handoff_policy_matrix/analysis_v3"
+          manifest = json.load(open(f"{root}/analysis_v2_manifest.json"))
+          assert "random" in manifest["excluded_algorithms"]
+          assert manifest["threshold_levels"] == [0.05, 0.1]
+
+          full = pd.read_csv(f"{root}/full/selection_event_metrics.csv")
+          cap = pd.read_csv(f"{root}/capfree/selection_event_metrics.csv")
+          for events in [full, cap]:
+              assert "random" not in set(events["algorithm"])
+              assert events["candidate_targets"].between(1, 4).all()
+              assert events["r_tvd"].ge(-1e-12).all()
+              assert events["r_shots"].ge(-1e-9).all()
+          assert full["candidate_targets"].eq(4).all()
+          assert len(full) == 4500
+          assert len(cap) <= 4500
+
+          for variant in ["full", "capfree"]:
+              d = pd.read_csv(
+                  f"{root}/{variant}/proposal_destination_shot_comparison.csv"
+              )
+              assert len(d) > 0
+              required = {
+                  "destination_no_failure_shots",
+                  "source_pre_failure_shots",
+                  "destination_post_failure_shots",
+                  "delta_total_including_source_vs_dest_no_failure",
+                  "delta_destination_only_vs_dest_no_failure",
+              }
+              assert required.issubset(d.columns)
+          PY
+      - name: Publish
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add             results/qpu_handoff_policy_matrix/analysis_v3             results/qpu_handoff_policy_matrix/plots_v3
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Add flexible cap-free and destination shot analysis"
+          git push origin HEAD:refs/heads/research/qpu-handoff-policy-matrix
