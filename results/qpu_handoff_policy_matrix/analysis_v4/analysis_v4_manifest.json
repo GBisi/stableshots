@@ -1,0 +1,38 @@
+{
+  "excluded_algorithms": [
+    "random"
+  ],
+  "excluded_stopping_rules": [
+    "fixed_10k"
+  ],
+  "threshold_levels": [
+    0.05,
+    0.1
+  ],
+  "policies": [
+    "stableshots_keep",
+    "stableshots_discard",
+    "fixed_20k_keep",
+    "fixed_20k_discard"
+  ],
+  "jnr_definition": "max(R_TVD/tau, (R_shots/source_no_failure_shots)/tau)",
+  "jnr_interpretation": "JNR <= 1 passes both practical thresholds; magnitude above 1 measures how many threshold units the worse objective incurs",
+  "full": {
+    "variant": "full",
+    "no_failure_rows": 300,
+    "handoff_candidate_rows": 12000,
+    "selection_events": 3000,
+    "candidate_gap_rows": 12000,
+    "candidate_targets_min": 4,
+    "candidate_targets_max": 4,
+    "destination_shot_comparison_rows": 3000,
+    "algorithms": [
+      "dj",
+      "qaoa",
+      "qft",
+      "qnn",
+      "vqe"
+    ],
+    "circuits": 30
+  }
+}
