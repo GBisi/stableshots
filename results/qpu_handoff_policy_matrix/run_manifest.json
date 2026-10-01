@@ -1,0 +1,29 @@
+{
+  "circuits": 36,
+  "backends": 5,
+  "directed_pairs": 20,
+  "failure_fractions": [
+    0.1,
+    0.25,
+    0.5,
+    0.75,
+    0.9
+  ],
+  "fixed_budgets": [
+    10000,
+    20000
+  ],
+  "no_failure_rows": 540,
+  "handoff_rows": 21600,
+  "policies": [
+    "fixed_10k_discard",
+    "fixed_10k_keep",
+    "fixed_20k_discard",
+    "fixed_20k_keep",
+    "stableshots_discard",
+    "stableshots_keep"
+  ],
+  "proposal": "stableshots_keep",
+  "failure_fraction_basis": "matched no-failure stopping count of same stopping rule",
+  "ideal_reference_shots": 200000
+}
