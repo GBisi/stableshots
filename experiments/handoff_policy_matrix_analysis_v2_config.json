@@ -1,0 +1,9 @@
+{
+  "source_output_dir": "results/qpu_handoff_policy_matrix",
+  "analysis_output_dir": "results/qpu_handoff_policy_matrix/analysis_v2",
+  "plots_output_dir": "results/qpu_handoff_policy_matrix/plots_v2",
+  "exclude_algorithms": ["random"],
+  "threshold_levels": [0.05, 0.10],
+  "proposal_policy": "stableshots_keep",
+  "require_complete_four_target_events": true
+}
