@@ -2,8 +2,22 @@
   "experiment_name": "qpu_handoff_policy_matrix",
   "output_dir": "results/qpu_handoff_policy_matrix",
   "circuit_kind": "circuit",
-  "algorithms": ["dj", "qaoa", "qft", "qnn", "random", "vqe"],
-  "sizes": [4, 6, 8, 10, 12, 14],
+  "algorithms": [
+    "dj",
+    "qaoa",
+    "qft",
+    "qnn",
+    "random",
+    "vqe"
+  ],
+  "sizes": [
+    4,
+    6,
+    8,
+    10,
+    12,
+    14
+  ],
   "backends": [
     "fake_fez",
     "fake_kyiv",
@@ -18,11 +32,20 @@
   "sampling_seed": 20260929,
   "reference_seed": 94029,
   "force_download": false,
-  "failure_fractions": [0.1, 0.25, 0.5, 0.75, 0.9],
-  "fixed_budgets": [10000, 20000],
+  "failure_fractions": [
+    0.1,
+    0.25,
+    0.5,
+    0.75,
+    0.9
+  ],
+  "fixed_budgets": [
+    10000,
+    20000
+  ],
   "practical_thresholds": {
     "tvd": 0.05,
-    "shots": 1000
+    "shots_fraction_of_source_no_failure": 0.05
   },
   "stableshots": {
     "batch_size": 50,

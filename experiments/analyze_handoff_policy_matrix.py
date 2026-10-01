@@ -52,6 +52,26 @@ def summary_table(
         row: Dict[str, object] = {
             col: value for col, value in zip(group_cols, key)
         }
+        (
+            policy_id,
+            stopping_rule,
+            history_policy,
+            circuit_key,
+            algorithm,
+            size,
+            source_backend,
+            failure_fraction,
+        ) = key
+        matched = baseline_lookup.loc[
+            (circuit_key, source_backend, stopping_rule)
+        ]
+        source_no_failure_tvd = float(matched["source_no_failure_tvd_to_aer"])
+        source_no_failure_shots = float(
+            matched["source_no_failure_physical_shots"]
+        )
+        event_shot_threshold = (
+            shot_threshold_fraction * source_no_failure_shots
+        )
         row["rows"] = int(len(group))
         for metric in metrics:
             add_stats(row, group[metric], metric)
@@ -63,8 +83,8 @@ def derive_selection_events(
     handoff: pd.DataFrame,
     no_failure: pd.DataFrame,
     tvd_threshold: float,
-    shot_threshold: float,
-) -> pd.DataFrame:
+    shot_threshold_fraction: float,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     baseline = no_failure[
         [
             "circuit_key",
@@ -81,7 +101,12 @@ def derive_selection_events(
         }
     )
 
+    baseline_lookup = baseline.set_index(
+        ["circuit_key", "source_backend", "stopping_rule"]
+    )
+
     rows: List[Dict[str, object]] = []
+    candidate_gap_rows: List[Dict[str, object]] = []
     group_cols = [
         "policy_id",
         "stopping_rule",
@@ -113,6 +138,28 @@ def derive_selection_events(
         shots_at_best_tvd = float(best_tvd_rows["total_physical_shots"].mean())
         tvd_at_best_shots = float(best_shot_rows["final_tvd_to_aer"].mean())
 
+        tvd_gaps = tvd - best_tvd
+        shot_gaps = shots - best_shots
+        for candidate_index, (_, candidate) in enumerate(group.iterrows()):
+            candidate_gap_rows.append(
+                {
+                    **{
+                        col: value for col, value in zip(group_cols, key)
+                    },
+                    "target_backend": str(candidate["target_backend"]),
+                    "candidate_tvd_to_aer": float(candidate["final_tvd_to_aer"]),
+                    "candidate_physical_shots": float(
+                        candidate["total_physical_shots"]
+                    ),
+                    "best_tvd": best_tvd,
+                    "best_physical_shots": best_shots,
+                    "tvd_gap_from_best": float(tvd_gaps[candidate_index]),
+                    "shot_gap_from_best": float(shot_gaps[candidate_index]),
+                    "source_no_failure_physical_shots": source_no_failure_shots,
+                    "shot_practical_threshold": event_shot_threshold,
+                }
+            )
+
         row.update(
             {
                 "candidate_targets": 4,
@@ -124,6 +171,11 @@ def derive_selection_events(
                 "random_expected_physical_shots": random_shots,
                 "shots_at_best_tvd": shots_at_best_tvd,
                 "r_tvd": random_tvd - best_tvd,
+                "candidate_tvd_gap_min": float(np.min(tvd_gaps)),
+                "candidate_tvd_gap_mean": float(np.mean(tvd_gaps)),
+                "candidate_tvd_gap_median": float(np.median(tvd_gaps)),
+                "candidate_tvd_gap_max": float(np.max(tvd_gaps)),
+                "candidate_tvd_gap_std": float(np.std(tvd_gaps, ddof=1)),
                 "random_minus_best_tvd_shots": random_shots - shots_at_best_tvd,
                 "best_physical_shots": best_shots,
                 "best_shot_targets": ";".join(
@@ -131,16 +183,23 @@ def derive_selection_events(
                 ),
                 "tvd_at_best_shots": tvd_at_best_shots,
                 "r_shots": random_shots - best_shots,
+                "candidate_shot_gap_min": float(np.min(shot_gaps)),
+                "candidate_shot_gap_mean": float(np.mean(shot_gaps)),
+                "candidate_shot_gap_median": float(np.median(shot_gaps)),
+                "candidate_shot_gap_max": float(np.max(shot_gaps)),
+                "candidate_shot_gap_std": float(np.std(shot_gaps, ddof=1)),
                 "random_minus_best_shots_tvd": random_tvd - tvd_at_best_shots,
+                "shot_practical_threshold": event_shot_threshold,
+                "shot_practical_threshold_fraction": shot_threshold_fraction,
                 "random_within_tvd_threshold": (
                     random_tvd - best_tvd <= tvd_threshold
                 ),
                 "random_within_shot_threshold": (
-                    random_shots - best_shots <= shot_threshold
+                    random_shots - best_shots <= event_shot_threshold
                 ),
                 "random_within_both_thresholds": (
                     random_tvd - best_tvd <= tvd_threshold
-                    and random_shots - best_shots <= shot_threshold
+                    and random_shots - best_shots <= event_shot_threshold
                 ),
             }
         )
@@ -179,7 +238,8 @@ def derive_selection_events(
         events["best_physical_shots"]
         - events["source_no_failure_physical_shots"]
     )
-    return events
+    candidate_gaps = pd.DataFrame(candidate_gap_rows)
+    return events, candidate_gaps
 
 
 def draw_boxes(
@@ -431,7 +491,9 @@ def main() -> None:
 
     thresholds = config["practical_thresholds"]
     tvd_threshold = float(thresholds["tvd"])
-    shot_threshold = float(thresholds["shots"])
+    shot_threshold_fraction = float(
+        thresholds["shots_fraction_of_source_no_failure"]
+    )
 
     no_failure_summary = summary_table(
         no_failure,
@@ -444,21 +506,32 @@ def main() -> None:
         ["final_tvd_to_aer", "total_physical_shots"],
     )
 
-    events = derive_selection_events(
+    events, candidate_gaps = derive_selection_events(
         handoff,
         no_failure,
         tvd_threshold,
-        shot_threshold,
+        shot_threshold_fraction,
     )
 
     event_metrics = [
         "random_expected_tvd",
         "best_tvd",
         "r_tvd",
+        "candidate_tvd_gap_min",
+        "candidate_tvd_gap_mean",
+        "candidate_tvd_gap_median",
+        "candidate_tvd_gap_max",
+        "candidate_tvd_gap_std",
         "random_minus_best_tvd_shots",
         "random_expected_physical_shots",
         "best_physical_shots",
         "r_shots",
+        "candidate_shot_gap_min",
+        "candidate_shot_gap_mean",
+        "candidate_shot_gap_median",
+        "candidate_shot_gap_max",
+        "candidate_shot_gap_std",
+        "shot_practical_threshold",
         "random_minus_best_shots_tvd",
         "random_delta_tvd_vs_no_failure",
         "best_tvd_delta_vs_no_failure",
@@ -518,6 +591,28 @@ def main() -> None:
         analysis_dir / "selection_event_metrics.csv",
         index=False,
     )
+    candidate_gaps.to_csv(
+        analysis_dir / "selection_candidate_gaps.csv",
+        index=False,
+    )
+    candidate_gap_summary = summary_table(
+        candidate_gaps,
+        ["policy_id", "failure_fraction"],
+        ["tvd_gap_from_best", "shot_gap_from_best"],
+    )
+    candidate_gap_summary.to_csv(
+        analysis_dir / "candidate_gap_by_policy_failure.csv",
+        index=False,
+    )
+    candidate_gap_source_failure = summary_table(
+        candidate_gaps,
+        ["policy_id", "source_backend", "failure_fraction"],
+        ["tvd_gap_from_best", "shot_gap_from_best"],
+    )
+    candidate_gap_source_failure.to_csv(
+        analysis_dir / "candidate_gap_by_policy_source_failure.csv",
+        index=False,
+    )
     for name, frame in summary_frames.items():
         frame.to_csv(analysis_dir / f"{name}.csv", index=False)
 
@@ -535,7 +630,7 @@ def main() -> None:
         fractions,
         plots_dir,
         tvd_threshold,
-        shot_threshold,
+        None,
     )
     plot_failure_impact(events, fractions, plots_dir)
 
@@ -543,10 +638,17 @@ def main() -> None:
         "no_failure_rows": int(len(no_failure)),
         "handoff_rows": int(len(handoff)),
         "selection_events": int(len(events)),
+        "candidate_gap_rows": int(len(candidate_gaps)),
         "candidate_targets_per_event": 4,
         "random_policy": "exact uniform mean over four alternative target QPUs",
         "tvd_practical_threshold": tvd_threshold,
-        "shot_practical_threshold": shot_threshold,
+        "shot_practical_threshold_fraction_of_matched_source_no_failure": (
+            shot_threshold_fraction
+        ),
+        "shot_threshold_definition": (
+            "5% of matched no-failure physical shots for the same "
+            "(circuit, size, source backend, stopping rule)"
+        ),
         "primary_proposal": "stableshots_keep",
         "failure_fraction_basis": (
             "fraction of matched no-failure stopping count for same stopping rule"
