@@ -1,0 +1,15 @@
+{
+  "profile_rows": 150,
+  "strategy_event_rows": 3000,
+  "strategies": [
+    "oracle_best",
+    "oracle_nonworse",
+    "random",
+    "oracle_worst"
+  ],
+  "best_profile": "lowest 30k-shot TVD to Aer",
+  "nonworse_profile": "20k-shot TVD to Aer <= failed source 20k-shot TVD",
+  "nonworse_fallback": "lowest 20k-shot TVD destination if eligible set is empty",
+  "worst_profile": "highest 30k-shot TVD to Aer",
+  "profile_cost_accounting": "offline oracle profiling excluded from handoff cost"
+}
