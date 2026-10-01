@@ -1,0 +1,43 @@
+{
+  "excluded_algorithms": [
+    "random"
+  ],
+  "threshold_levels": [
+    0.05,
+    0.1
+  ],
+  "jnr_definition": "max(R_TVD/tau, (R_shots/source_no_failure_shots)/tau)",
+  "jnr_interpretation": "JNR <= 1 passes both practical thresholds; magnitude above 1 measures how many threshold units the worse objective incurs",
+  "capped_stableshots_triples": 35,
+  "capfree_complete_event_rule": "remove capped backend/circuit triples from all stopping rules; retain handoff events only for circuits where all five backend triples are uncapped so all four alternative targets remain",
+  "full": {
+    "variant": "full",
+    "no_failure_rows": 450,
+    "handoff_candidate_rows": 18000,
+    "selection_events": 4500,
+    "candidate_gap_rows": 18000,
+    "algorithms": [
+      "dj",
+      "qaoa",
+      "qft",
+      "qnn",
+      "vqe"
+    ],
+    "circuits": 30
+  },
+  "capfree": {
+    "variant": "capfree",
+    "no_failure_rows": 345,
+    "handoff_candidate_rows": 13200,
+    "selection_events": 3300,
+    "candidate_gap_rows": 13200,
+    "algorithms": [
+      "dj",
+      "qaoa",
+      "qft",
+      "qnn",
+      "vqe"
+    ],
+    "circuits": 24
+  }
+}
