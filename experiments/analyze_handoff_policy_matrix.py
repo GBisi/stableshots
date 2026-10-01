@@ -125,6 +125,29 @@ def derive_selection_events(
         row: Dict[str, object] = {
             col: value for col, value in zip(group_cols, key)
         }
+        (
+            policy_id,
+            stopping_rule,
+            history_policy,
+            circuit_key,
+            algorithm,
+            size,
+            source_backend,
+            failure_fraction,
+        ) = key
+        matched = baseline_lookup.loc[
+            (circuit_key, source_backend, stopping_rule)
+        ]
+        source_no_failure_tvd = float(
+            matched["source_no_failure_tvd_to_aer"]
+        )
+        source_no_failure_shots = float(
+            matched["source_no_failure_physical_shots"]
+        )
+        event_shot_threshold = (
+            shot_threshold_fraction * source_no_failure_shots
+        )
+
         tvd = group["final_tvd_to_aer"].to_numpy(dtype=float)
         shots = group["total_physical_shots"].to_numpy(dtype=float)
         random_tvd = float(np.mean(tvd))
@@ -183,6 +206,9 @@ def derive_selection_events(
                 ),
                 "tvd_at_best_shots": tvd_at_best_shots,
                 "r_shots": random_shots - best_shots,
+                "r_shots_fraction_of_source_no_failure": (
+                    (random_shots - best_shots) / source_no_failure_shots
+                ),
                 "candidate_shot_gap_min": float(np.min(shot_gaps)),
                 "candidate_shot_gap_mean": float(np.mean(shot_gaps)),
                 "candidate_shot_gap_median": float(np.median(shot_gaps)),
@@ -342,14 +368,14 @@ def plot_regrets(
     fractions: Sequence[float],
     plots_dir: Path,
     tvd_threshold: float,
-    shot_threshold: float,
+    shot_threshold_fraction: float,
 ) -> None:
     for metric, ylabel, threshold, filename in [
         ("r_tvd", "R_TVD: random - best TVD", tvd_threshold, "selection_tvd_regret.png"),
         (
-            "r_shots",
-            "R_shots: random - minimum shots",
-            shot_threshold,
+            "r_shots_fraction_of_source_no_failure",
+            "R_shots / matched no-failure shots",
+            shot_threshold_fraction,
             "selection_shot_regret.png",
         ),
     ]:
@@ -526,6 +552,7 @@ def main() -> None:
         "random_expected_physical_shots",
         "best_physical_shots",
         "r_shots",
+        "r_shots_fraction_of_source_no_failure",
         "candidate_shot_gap_min",
         "candidate_shot_gap_mean",
         "candidate_shot_gap_median",
@@ -630,7 +657,7 @@ def main() -> None:
         fractions,
         plots_dir,
         tvd_threshold,
-        None,
+        shot_threshold_fraction,
     )
     plot_failure_impact(events, fractions, plots_dir)
 
