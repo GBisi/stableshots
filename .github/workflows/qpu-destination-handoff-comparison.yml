@@ -1,0 +1,61 @@
+name: StableShots destination handoff comparison
+
+on:
+  push:
+    branches:
+      - research/qpu-handoff-policy-matrix
+    paths:
+      - "experiments/analyze_destination_handoff_metrics.py"
+      - ".github/workflows/qpu-destination-handoff-comparison.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qpu-destination-handoff-comparison
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/qpu-handoff-policy-matrix
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Compute destination-only TVD and plots
+        run: |
+          uv run python experiments/analyze_destination_handoff_metrics.py
+      - name: Verify
+        run: |
+          uv run python - <<'PY'
+          import json
+          import pandas as pd
+          root = "results/qpu_handoff_policy_matrix/analysis_v5_destination"
+          d = pd.read_csv(f"{root}/destination_handoff_comparison.csv")
+          m = json.load(open(f"{root}/destination_handoff_manifest.json"))
+          assert len(d) == 3000
+          assert m["rows"] == 3000
+          assert "random" not in set(d["algorithm"])
+          assert d["destination_no_failure_shots"].gt(0).all()
+          assert d["destination_no_failure_tvd_to_aer"].between(0,1).all()
+          assert d["final_tvd_to_aer"].between(0,1).all()
+          assert d["destination_only_post_tvd_to_aer"].dropna().between(0,1).all()
+          PY
+      - name: Publish
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add             results/qpu_handoff_policy_matrix/analysis_v5_destination             results/qpu_handoff_policy_matrix/plots_v5_destination
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Add destination-centric TVD and shot comparison"
+          git push origin HEAD:refs/heads/research/qpu-handoff-policy-matrix
