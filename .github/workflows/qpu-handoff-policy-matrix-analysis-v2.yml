@@ -1,0 +1,84 @@
+name: QPU handoff policy matrix analysis v2
+
+on:
+  push:
+    branches:
+      - research/qpu-handoff-policy-matrix
+    paths:
+      - "experiments/handoff_policy_matrix_analysis_v2_config.json"
+      - "experiments/analyze_handoff_policy_matrix_v2.py"
+      - ".github/workflows/qpu-handoff-policy-matrix-analysis-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qpu-handoff-policy-matrix-analysis-v2
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/qpu-handoff-policy-matrix
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - name: Run analysis v2
+        run: |
+          uv run python experiments/analyze_handoff_policy_matrix_v2.py             --config experiments/handoff_policy_matrix_analysis_v2_config.json
+
+      - name: Verify
+        run: |
+          uv run python - <<'PY'
+          import json
+          import pandas as pd
+
+          root = "results/qpu_handoff_policy_matrix/analysis_v2"
+          manifest = json.load(open(f"{root}/analysis_v2_manifest.json"))
+          assert "random" in manifest["excluded_algorithms"]
+          assert manifest["threshold_levels"] == [0.05, 0.1]
+
+          for variant in ["full", "capfree"]:
+              events = pd.read_csv(
+                  f"{root}/{variant}/selection_event_metrics.csv"
+              )
+              assert "random" not in set(events["algorithm"])
+              assert events["candidate_targets"].eq(4).all()
+              assert events["r_tvd"].ge(-1e-12).all()
+              assert events["r_shots"].ge(-1e-9).all()
+              for label in ["5", "10"]:
+                  assert events[f"jnr_{label}pct"].ge(0).all()
+                  assert (
+                      events[f"joint_pass_{label}pct"]
+                      == (events[f"jnr_{label}pct"] <= 1 + 1e-12)
+                  ).all()
+
+          assert manifest["full"]["selection_events"] == 4500
+          assert manifest["capfree"]["selection_events"] <= 4500
+          PY
+
+      - name: Publish
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add             results/qpu_handoff_policy_matrix/analysis_v2             results/qpu_handoff_policy_matrix/plots_v2
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Add threshold and cap-free policy analysis v2"
+          git push origin HEAD:refs/heads/research/qpu-handoff-policy-matrix
