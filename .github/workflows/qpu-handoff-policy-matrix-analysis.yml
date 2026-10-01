@@ -1,0 +1,81 @@
+name: QPU handoff policy matrix analysis
+
+on:
+  push:
+    branches:
+      - research/qpu-handoff-policy-matrix
+    paths:
+      - "experiments/analyze_handoff_policy_matrix.py"
+      - "experiments/handoff_policy_matrix_config.json"
+      - ".github/workflows/qpu-handoff-policy-matrix-analysis.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qpu-handoff-policy-matrix-analysis
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/qpu-handoff-policy-matrix
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - name: Run analysis only
+        run: |
+          uv run python experiments/analyze_handoff_policy_matrix.py \
+            --config experiments/handoff_policy_matrix_config.json
+
+      - name: Verify analysis
+        run: |
+          uv run python - <<'PY'
+          import pandas as pd
+
+          root = "results/qpu_handoff_policy_matrix/analysis"
+          e = pd.read_csv(f"{root}/selection_event_metrics.csv")
+          g = pd.read_csv(f"{root}/selection_candidate_gaps.csv")
+          assert len(e) == 5400, len(e)
+          assert len(g) == 21600, len(g)
+          assert e["candidate_targets"].eq(4).all()
+          assert e["r_tvd"].ge(-1e-12).all()
+          assert e["r_shots"].ge(-1e-9).all()
+          assert e["shot_practical_threshold_fraction"].eq(0.05).all()
+          assert (
+              e["shot_practical_threshold"]
+              - 0.05 * e["source_no_failure_physical_shots"]
+          ).abs().max() < 1e-9
+          assert (
+              e["r_shots_fraction_of_source_no_failure"]
+              - e["r_shots"] / e["source_no_failure_physical_shots"]
+          ).abs().max() < 1e-12
+          assert g["tvd_gap_from_best"].ge(-1e-12).all()
+          assert g["shot_gap_from_best"].ge(-1e-9).all()
+          PY
+
+      - name: Publish analysis
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add results/qpu_handoff_policy_matrix/analysis results/qpu_handoff_policy_matrix/plots
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Update policy matrix analysis with relative shot threshold"
+          git push origin HEAD:refs/heads/research/qpu-handoff-policy-matrix
