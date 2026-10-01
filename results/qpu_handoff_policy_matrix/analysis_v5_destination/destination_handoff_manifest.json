@@ -1,0 +1,31 @@
+{
+  "rows": 3000,
+  "algorithms": [
+    "dj",
+    "qaoa",
+    "qft",
+    "qnn",
+    "vqe"
+  ],
+  "backends": [
+    "fake_fez",
+    "fake_kyiv",
+    "fake_marrakesh",
+    "fake_sherbrooke",
+    "fake_torino"
+  ],
+  "failure_fractions": [
+    0.1,
+    0.25,
+    0.5,
+    0.75,
+    0.9
+  ],
+  "destination_only_tvd_nan_rows": 0,
+  "definitions": {
+    "delta_shots_source_counted": "total physical handoff shots - destination no-failure StableShots shots",
+    "delta_shots_destination_only": "destination post-handoff shots - destination no-failure StableShots shots",
+    "delta_tvd_source_counted": "final aggregate handoff TVD - destination no-failure StableShots TVD",
+    "delta_tvd_destination_only": "destination-only post-handoff TVD - destination no-failure StableShots TVD"
+  }
+}
