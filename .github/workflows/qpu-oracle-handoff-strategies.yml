@@ -1,0 +1,61 @@
+name: Oracle handoff strategies
+
+on:
+  push:
+    branches:
+      - research/qpu-handoff-policy-matrix
+    paths:
+      - "experiments/analyze_oracle_handoff_strategies.py"
+      - ".github/workflows/qpu-oracle-handoff-strategies.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qpu-oracle-handoff-strategies
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/qpu-handoff-policy-matrix
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Compute 20k/30k oracle profiles and strategies
+        run: uv run python experiments/analyze_oracle_handoff_strategies.py
+      - name: Verify
+        run: |
+          uv run python - <<'PY'
+          import pandas as pd
+          root = "results/qpu_handoff_policy_matrix/analysis_v6_oracle"
+          p = pd.read_csv(f"{root}/qpu_quality_profiles_20k_30k.csv")
+          e = pd.read_csv(f"{root}/oracle_strategy_events.csv")
+          s = pd.read_csv(f"{root}/oracle_strategy_summary_by_failure.csv")
+          assert len(p) == 150
+          assert len(e) == 3000
+          assert len(s) == 20
+          assert set(e["strategy"]) == {
+              "oracle_best", "oracle_nonworse", "random", "oracle_worst"
+          }
+          assert p["tvd_20k_to_aer"].between(0, 1).all()
+          assert p["tvd_30k_to_aer"].between(0, 1).all()
+          PY
+      - name: Publish
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add results/qpu_handoff_policy_matrix/analysis_v6_oracle
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Add oracle replacement QPU strategy analysis"
+          git push origin HEAD:refs/heads/research/qpu-handoff-policy-matrix
