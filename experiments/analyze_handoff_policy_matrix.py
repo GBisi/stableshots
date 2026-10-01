@@ -52,26 +52,6 @@ def summary_table(
         row: Dict[str, object] = {
             col: value for col, value in zip(group_cols, key)
         }
-        (
-            policy_id,
-            stopping_rule,
-            history_policy,
-            circuit_key,
-            algorithm,
-            size,
-            source_backend,
-            failure_fraction,
-        ) = key
-        matched = baseline_lookup.loc[
-            (circuit_key, source_backend, stopping_rule)
-        ]
-        source_no_failure_tvd = float(matched["source_no_failure_tvd_to_aer"])
-        source_no_failure_shots = float(
-            matched["source_no_failure_physical_shots"]
-        )
-        event_shot_threshold = (
-            shot_threshold_fraction * source_no_failure_shots
-        )
         row["rows"] = int(len(group))
         for metric in metrics:
             add_stats(row, group[metric], metric)
