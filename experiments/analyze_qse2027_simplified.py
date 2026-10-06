@@ -72,6 +72,30 @@ def main() -> None:
     )
     pair.to_csv(args.output_dir / "pair_medians.csv", index=False)
 
+    # The directed-handoff baseline records the exact source distribution at
+    # the injected failure point.  Final StableShots+keep outcomes match the
+    # policy-matrix runs; here we use the baseline only for the start point of
+    # the paper trajectories.
+    prefix = baseline_handoff.copy()
+    prefix["source"] = clean_backend(prefix.source_backend)
+    prefix["failure"] = prefix.failure_fraction.astype(float)
+    prefix = prefix.drop_duplicates(
+        ["circuit_key", "source_backend", "failure_fraction"]
+    )
+    (
+        prefix.groupby(["source", "failure"], as_index=False)
+        .agg(
+            n=("circuit_key", "size"),
+            actual_failure_fraction_median=("actual_failure_fraction", "median"),
+            failure_shots_median=("failure_shots", "median"),
+            failure_shots_mean=("failure_shots", "mean"),
+            failure_point_tvd_median=("failure_point_tvd_to_aer", "median"),
+            failure_point_tvd_mean=("failure_point_tvd_to_aer", "mean"),
+        )
+        .sort_values(["source", "failure"])
+        .to_csv(args.output_dir / "source_failure_prefix.csv", index=False)
+    )
+
     nf_ss = no_failure[no_failure.stopping_rule == "stableshots"].copy()
     nf_ss["source"] = clean_backend(nf_ss.backend)
     (
@@ -243,8 +267,19 @@ def main() -> None:
     )
 
     matches = int(events.offline20k_matches_best.sum())
-    print(f"offline-20k agrees with retrospective BEST in "
-          f"{matches}/{len(events)} events ({matches/len(events):.1%})")
+    stable = handoff[
+        handoff.policy_id.eq("stableshots_keep")
+        & handoff.stop_reason.eq("stable")
+    ]
+    keep_count = int(handoff.policy_id.eq("stableshots_keep").sum())
+    print(
+        f"StableShots+keep stabilizes within the 20k budget in "
+        f"{len(stable)}/{keep_count} handoffs ({len(stable)/keep_count:.1%})"
+    )
+    print(
+        f"offline-20k agrees with retrospective BEST in "
+        f"{matches}/{len(events)} events ({matches/len(events):.1%})"
+    )
 
 
 if __name__ == "__main__":
