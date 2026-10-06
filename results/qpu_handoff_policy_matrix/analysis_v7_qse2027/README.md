@@ -16,10 +16,13 @@ The analysis writes derived CSVs to this directory and figures to
 
 RQ1 asks what changes when a failure forces execution to move to another QPU.
 For each source and failure point, `source_failure_prefix.csv` records the
-median source TVD and completed source shots at the failure boundary. Each
-paper trajectory then connects that point to the final StableShots+keep result
-at 100% execution progress. Dotted source-colored lines show the matched
-no-failure source endpoint. TVD is always shown before physical shots.
+median source TVD and completed source shots at the failure boundary. Figures
+1 and 2 now draw a complete 0--100% path: source-QPU color before failure,
+destination-QPU color after the switch, and a failure marker at the color
+change. Dotted source-colored paths show the matched no-failure execution.
+Shot paths start at zero; because TVD is undefined before measurements exist,
+the first observed source TVD checkpoint is visually extended to the 0% edge
+only to identify the initial source phase. TVD is always shown before shots.
 
 The corollary compares StableShots+keep/restart and Fixed20k+keep/restart to
 isolate the measurement cost of discarding completed work. In the current
