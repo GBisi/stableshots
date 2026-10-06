@@ -55,21 +55,15 @@ def qpu_handles():
 
 
 def setup_axis(ax, ylabel):
-    ax.set_xlim(0, 102)
-    ax.set_xticks([0, 10, 25, 50, 75, 90, 100])
+    ax.set_xlim(8, 102)
+    ax.set_xticks([10, 25, 50, 75, 90, 100])
     ax.set_xlabel("Execution progress (%)")
     ax.set_ylabel(ylabel)
     ax.grid(axis="y", linewidth=.35, alpha=.35)
 
 
 def source_path(prefix, source, failure, metric):
-    """Median source-side path from 0% up to one failure point.
-
-    Source states are observed at the five injected failure checkpoints. For
-    shot count, 0% is exactly 0 shots. TVD is undefined before measurements
-    exist, so the first observed source TVD is extended to 0% only to show the
-    complete source-QPU phase; no additional TVD observation is implied.
-    """
+    """Median source-side checkpoints from 10% up to one failure point."""
     work = prefix[
         (prefix.source == source)
         & (prefix.failure <= failure + 1e-12)
@@ -77,15 +71,11 @@ def source_path(prefix, source, failure, metric):
     if work.empty:
         raise RuntimeError(f"no source prefix for {source}/{failure}")
 
-    xs = (100.0 * work.actual_failure_fraction_median.astype(float)).tolist()
+    xs = (100.0 * work.failure.astype(float)).tolist()
     if metric == "tvd_median":
         ys = work.failure_point_tvd_median.astype(float).tolist()
-        xs = [0.0] + xs
-        ys = [ys[0]] + ys
     else:
         ys = work.failure_shots_median.astype(float).tolist()
-        xs = [0.0] + xs
-        ys = [0.0] + ys
     return xs, ys
 
 
