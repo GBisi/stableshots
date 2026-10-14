@@ -127,6 +127,10 @@ b50_lb3_k5_eps0p005
 
 StableShots is a diminishing-returns heuristic. It does not certify closeness to the unknown backend-induced distribution.
 
+### Foundations and theory
+
+The theoretical motivation for adaptive shot control comes from [*How Many Shots Are Enough for a Quantum Circuit?*](https://doi.org/10.1145/3841468), which introduces the **IncrementalExecution** framework and the **point-of-diminishing-returns** principle. It frames shot optimization for static quantum circuits as a black-box online decision problem: rather than fixing the shot budget in advance, an execution policy can assess whether additional measurements meaningfully change the observed empirical output distribution. StableShots instantiates this idea with cumulative-distribution TVD, a configurable look-back, and repeated stability checks. These empirical checks are not a formal guarantee of closeness to the unknown backend-induced distribution.
+
 ## Auditable decisions
 
 Use `run_stable_shots_audited()` when the caller also needs provenance and a reconstructable stopping decision. The audit records:
@@ -196,6 +200,8 @@ The bundled conference scenarios are deterministic synthetic replays. QSimBench 
 
 ## Citation
 
+To cite the StableShots stopping rule and experiments:
+
 ```bibtex
 @inproceedings{Bisicchia2026Stableshots,
   author       = {Bisicchia, G. and Bocci, A. and Pimentel, E. and Brogi, A.},
@@ -203,5 +209,18 @@ The bundled conference scenarios are deterministic synthetic replays. QSimBench 
   booktitle    = {IEEE International Conference on Quantum Computing and Engineering (QCE 2026)},
   year         = {2026},
   note         = {In Press}
+}
+```
+
+For the foundational framework and theory behind adaptive, diminishing-returns shot control:
+
+```bibtex
+@article{Bisicchia2026HowManyShots,
+  author  = {Bisicchia, Giuseppe and Bocci, Alessandro and Pimentel, Ernesto and Brogi, Antonio},
+  title   = {{How Many Shots Are Enough for a Quantum Circuit?}},
+  journal = {ACM Transactions on Quantum Computing},
+  year    = {2026},
+  doi     = {10.1145/3841468},
+  url     = {https://doi.org/10.1145/3841468}
 }
 ```
